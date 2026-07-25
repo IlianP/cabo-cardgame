@@ -1,0 +1,14 @@
+{
+  "name": "cabo-cardgame",
+  "version": "1.0.0",
+  "description": "Cabo als Progressive Web App – Pass-and-Play auf einem Tablet, mit Sichtschutz für geheime Karten.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "start": "npx --yes http-server . -p 8080 -c-1",
+    "icons": "python3 tools/make-icons.py"
+  },
+  "keywords": ["cabo", "kartenspiel", "pwa", "tablet"],
+  "license": "MIT"
+}
