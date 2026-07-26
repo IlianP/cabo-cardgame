@@ -300,10 +300,24 @@ input.pin-input { flex: 0 0 96px; text-align: center; letter-spacing: .3em; }
   transition: transform .12s ease, box-shadow .12s ease;
   border: 1px solid transparent;
 }
-.card--down {
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, .07), transparent 60%),
-    repeating-linear-gradient(45deg, #135640, #135640 6px, #0c3d2e 6px, #0c3d2e 12px);
+/* Rückseite: Schuppenmuster, in CSS gezeichnet statt als Bild – dadurch
+   verlustfrei in jeder Größe und ohne zusätzliche Datei. Zwei versetzte
+   Lagen halber Kreise erzeugen die überlappenden Schuppen. */
+.card--down,
+.pile-card--back {
+  --sc: calc(var(--card-w) * .24);
+  background-color: #093122;
+  background-image:
+    radial-gradient(circle at 50% 0,
+      #17714f 0 calc(var(--sc) / 2 - 1px),
+      #06251a calc(var(--sc) / 2 - 1px) calc(var(--sc) / 2),
+      transparent calc(var(--sc) / 2)),
+    radial-gradient(circle at 50% 0,
+      #0f5b3f 0 calc(var(--sc) / 2 - 1px),
+      #06251a calc(var(--sc) / 2 - 1px) calc(var(--sc) / 2),
+      transparent calc(var(--sc) / 2));
+  background-size: var(--sc) calc(var(--sc) * .55);
+  background-position: 0 0, calc(var(--sc) / 2) calc(var(--sc) * .275);
   border-color: rgba(230, 184, 86, .55);
 }
 /* Wertfarbe: niedrige Karten grün, hohe rot – in Cabo ist niedrig gut. */
@@ -322,27 +336,37 @@ input.pin-input { flex: 0 0 96px; text-align: center; letter-spacing: .3em; }
   border: 1px dashed var(--line);
   box-shadow: none;
 }
+/* Zahl als Eck-Index wie bei einer Spielkarte – einmal oben links,
+   einmal auf dem Kopf unten rechts. So bleibt das Motiv frei. */
 .card-num {
-  font-size: calc(var(--card-w) * .5);
+  position: absolute;
+  font-size: calc(var(--card-w) * .22);
   font-weight: 800;
-  line-height: 1;
+  line-height: 1.1;
   letter-spacing: -.02em;
 }
+.card-num--tl { top: calc(var(--card-w) * .05); left: calc(var(--card-w) * .07); }
+.card-num--br {
+  bottom: calc(var(--card-w) * .05);
+  right: calc(var(--card-w) * .07);
+  transform: rotate(180deg);
+}
+/* Bewusst auf halber Höhe wie beim Original – dort stößt der Kraftname
+   an keinen der beiden Eck-Indizes. */
 .card-power {
   position: absolute;
-  bottom: calc(var(--card-w) * .08);
-  font-size: calc(var(--card-w) * .16);
+  top: 56%;
+  font-size: calc(var(--card-w) * .13);
   font-weight: 700;
   letter-spacing: .1em;
   text-transform: uppercase;
-  opacity: .72;
 }
-/* Auf Illustrationen braucht die Zahl einen eigenen Hintergrund. */
+/* Über einer Illustration brauchen Zahl und Kraftname eine eigene Fläche. */
 .card--art .card-num,
 .card--art .card-power {
-  background: rgba(255, 255, 255, .88);
-  border-radius: 7px;
-  padding: 0 .18em;
+  background: rgba(255, 255, 255, .9);
+  border-radius: 5px;
+  padding: 0 .22em;
 }
 
 .card--target {
@@ -392,10 +416,7 @@ input.pin-input { flex: 0 0 96px; text-align: center; letter-spacing: .3em; }
   font-weight: 700;
   box-shadow: 0 3px 10px rgba(0, 0, 0, .35);
 }
-.pile-card--back {
-  background: repeating-linear-gradient(45deg, #135640, #135640 6px, #0c3d2e 6px, #0c3d2e 12px);
-  border: 1px solid rgba(230, 184, 86, .55);
-}
+.pile-card--back { border: 1px solid rgba(230, 184, 86, .55); }
 .pile-label { font-size: 12px; color: var(--muted); }
 .pile-label b { color: var(--cream); }
 .pile.is-active .pile-card { box-shadow: 0 0 0 3px rgba(230, 184, 86, .5), 0 3px 10px rgba(0, 0, 0, .35); }
@@ -511,8 +532,18 @@ input.pin-input { flex: 0 0 96px; text-align: center; letter-spacing: .3em; }
 .result-table thead th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .result-table tr.is-winner td { color: var(--gold); font-weight: 700; }
 .result-hand { display: flex; gap: 5px; justify-content: flex-end; flex-wrap: wrap; }
+/* In der Abrechnung zählt Lesbarkeit: dort werden die Karten zu kleinen
+   farbigen Plättchen mit mittiger Zahl, ohne Motiv und ohne Eck-Index. */
 .result-hand .card { --card-w: 40px; box-shadow: none; }
-.result-hand .card-power { display: none; }
+.result-hand .card--art { background-image: none; }
+.result-hand .card-power,
+.result-hand .card-num--br { display: none; }
+.result-hand .card-num--tl {
+  position: static;
+  font-size: 17px;
+  background: none;
+  padding: 0;
+}
 .result-table--standings td:nth-child(2) { text-align: left; }
 .banner {
   border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; font-size: 15px; line-height: 1.45;

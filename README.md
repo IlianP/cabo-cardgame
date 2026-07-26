@@ -123,36 +123,72 @@ sich die Partie fortsetzen.
 
 ## Kartenbilder
 
-Ohne Illustrationen zeichnet die Oberfläche die Karten selbst: große Zahl, Farbe nach Wert
-(niedrig grün, hoch rot) und bei 7 bis 12 der Name der Kartenkraft. Das ist als Dauerlösung
-brauchbar und als Platzhalter gedacht.
+Jeder Wert hat ein eigenes Motiv, von harmlos nach unangenehm – das unterstützt die
+Spiellogik, dass niedrig gut ist:
 
-Sobald Bilder vorliegen, genügt es, sie unter `art/` abzulegen und in `js/art.js`
-einzutragen:
+| 0 | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| Einhorn | Glühwürmchen | Schmetterlinge | Frösche | Vögel | Füchse | Mäuse |
 
-```js
-export const CARD_ART = { 0: 'art/00.webp', 1: 'art/01.webp', /* … */ };
-export const CARD_BACK = 'art/back.webp';
+| 7 | 8 | 9 | 10 | 11 | 12 | 13 |
+|---|---|---|---|---|---|---|
+| Eulen | Schlangen | Katzen | Raben | Kobolde | Drachen | Höllenhund |
+
+Zahl und Kraftname liegen als Overlay über dem Bild, nicht im Bild: die Zahl steht wie bei
+einer Spielkarte zweimal über Eck, der Kraftname als Band auf halber Höhe. So bleibt die
+Zahl in jeder Größe scharf und lässt sich ändern, ohne ein Bild neu zu erzeugen.
+
+Die **Rückseite ist absichtlich kein Bild**, sondern ein in `css/style.css` gezeichnetes
+Schuppenmuster aus zwei versetzten Lagen halber Kreise. Das bleibt verlustfrei in jeder
+Größe und spart eine Datei, die sonst auf jeder verdeckten Karte geladen würde.
+
+Alle 14 Bilder zusammen wiegen rund 560 kB.
+
+### Bilder neu erzeugen
+
+Erzeugt wurden sie mit **Nano Banana 2** über [fal.ai](https://fal.ai). Modell, Parameter und
+sämtliche Prompts stehen versioniert in [`tools/art-prompts.json`](tools/art-prompts.json) –
+dort wird geändert, nicht im Skript.
+
+```bash
+export FAL_KEY=…                          # niemals ins Repository
+node tools/generate-art.mjs               # alle fehlenden Werte
+node tools/generate-art.mjs 3 7 --force   # nur diese, auch wenn sie existieren
+node tools/generate-art.mjs --convert-only  # nur neu umrechnen, ohne API-Kosten
 ```
 
-Erwartet werden Hochformat-Bilder im Verhältnis etwa 3:4, **ohne Zahl und ohne Rahmen** –
-beides legt die Oberfläche darüber, damit die Zahl scharf bleibt und jederzeit änderbar ist.
-Nicht eingetragene Werte werden weiterhin gezeichnet, ein gemischter Zustand ist also
-unproblematisch.
+Die Originale (rund 5 MB je Bild) bleiben in `tools/.art-cache/` liegen und sind von der
+Versionierung ausgenommen. Ein späterer Lauf mit `--convert-only` rechnet daraus andere
+Größen oder Qualitäten, ohne noch einmal zu bezahlen. Zum Umrechnen nach WebP nimmt das
+Skript, was es findet: `cwebp`, ImageMagick oder ersatzweise Chromium über Playwright.
+
+Zwei Dinge sind für das Ergebnis entscheidend und stehen deshalb so in der Prompt-Datei:
+
+- Der **Stilblock liegt im `system_prompt`**, nicht in den einzelnen Prompts. Nur so sehen
+  alle 14 Karten aus wie von derselben Hand. Ein Versuch mit dem Stil im Motiv-Prompt
+  lieferte 14 Bilder in 14 Stilen.
+- Bilder werden **ohne Text, ohne Zahlen und ohne Rahmen** angefordert. „playing card“ im
+  Prompt zu erwähnen ist ein Fehler – dann malt das Modell einen Kartenrahmen mit ins Bild.
+
+Neue Werte trägt man in `js/art.js` ein. Fehlt dort ein Eintrag, zeichnet die Oberfläche die
+Karte wie zuvor selbst – ein gemischter Zustand ist also unproblematisch.
 
 ## Aufbau des Codes
 
 ```
 index.html              Gerüst aller Bildschirme und Overlays
-css/style.css           Gestaltung, Quer- und Hochformat
+css/style.css           Gestaltung, Kartenrückseite, Quer- und Hochformat
 js/deck.js              Kartendeck, Werte, Kartenkräfte, Mischen
 js/rules.js             Voreinstellungen und Beschreibung aller Regelschalter
 js/engine.js            Spiellogik und Zustandsmaschine – kennt keine Oberfläche
 js/privacy.js           Sichtschutz: Halten zum Ansehen, Timer-Ring
-js/art.js               optionale Kartenbilder
+js/art.js               Zuordnung Kartenwert -> Bilddatei
 js/ui.js                Zeichnen des Spieltisches, Eingaben
 js/app.js               Einrichtung, Einstellungen, Speichern, Start
+art/00–13.webp          die Kartenbilder
 sw.js                   Service Worker für den Offline-Betrieb
+tools/art-prompts.json  Modell, Parameter und Prompts der Bildgenerierung
+tools/generate-art.mjs  erzeugt und rechnet die Kartenbilder um
 tools/make-icons.py     erzeugt die App-Icons (nur Standardbibliothek)
 test/engine.test.mjs    Tests der Spiellogik
 ```
@@ -174,7 +210,6 @@ Shoot the Moon, Punktlandung, Startspielerwechsel, Spielende und das Speichern a
 
 ## Was noch fehlen könnte
 
-- **Illustrationen** für die Werte 0 bis 13 und die Rückseite (siehe oben).
 - **Mehrgeräte-Modus**: Tablet als Tisch, jedes Handy als eigene Hand – siehe Issue #1.
 - **Computergegner** für Partien zu zweit.
 - **Statistik** über mehrere Abende.

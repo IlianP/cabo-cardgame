@@ -92,9 +92,17 @@ function hueFor(value) {
   return Math.round((170 - (value / MAX_VALUE) * 175 + 360) % 360);
 }
 
+/**
+ * Vorderseite: die Zahl steht wie bei einer Spielkarte zweimal über Eck,
+ * damit sie das Motiv nicht verdeckt und aus jeder Blickrichtung lesbar
+ * ist. Der Name der Kartenkraft liegt als Band im unteren Drittel.
+ */
 function cardFaceHTML(card) {
   const power = card.power ? `<span class="card-power">${POWER_NAME[card.power]}</span>` : '';
-  return `<span class="card-num">${card.value}</span>${power}`;
+  return (
+    `<span class="card-num card-num--tl">${card.value}</span>` +
+    `<span class="card-num card-num--br">${card.value}</span>${power}`
+  );
 }
 
 function cardMarkup(card, { faceUp, extra = '', classes = [], slotNo = null }) {

@@ -1,0 +1,100 @@
+{
+  "_readme": [
+    "Vorlagen für die Kartenbilder. Wer die Bilder neu erzeugen oder einzelne",
+    "Werte austauschen will, ändert hier den Text und ruft dann auf:",
+    "",
+    "    FAL_KEY=… node tools/generate-art.mjs            # alle fehlenden Werte",
+    "    FAL_KEY=… node tools/generate-art.mjs 3 7 --force # nur diese, neu",
+    "",
+    "Der Stilblock steht bewusst im system_prompt und nicht in den einzelnen",
+    "Prompts: nur so sehen alle 14 Karten wie aus einer Hand gezeichnet aus.",
+    "Zahl und Kraftname legt die Oberfläche später über das Bild – deshalb",
+    "darf im Bild selbst weder Text noch Rahmen auftauchen.",
+    "",
+    "Die Rückseite wird absichtlich nicht generiert, sondern in css/style.css",
+    "als Muster gezeichnet: exakt, verlustfrei und ohne zusätzliche Datei."
+  ],
+
+  "endpoint": "https://fal.run/fal-ai/nano-banana-2",
+  "model": "fal-ai/nano-banana-2",
+  "auth_header": "Authorization: Key $FAL_KEY",
+  "price_per_image_usd": 0.08,
+
+  "params": {
+    "aspect_ratio": "3:4",
+    "resolution": "2K",
+    "num_images": 1,
+    "output_format": "png",
+    "seed": 20260726
+  },
+
+  "output": {
+    "directory": "art",
+    "format": "webp",
+    "width": 600,
+    "height": 800,
+    "quality": 0.82,
+    "note": "Karten werden höchstens rund 190 CSS-Pixel breit gezeichnet; 600 px reichen damit auch auf Bildschirmen mit dreifacher Pixeldichte."
+  },
+
+  "system_prompt": "You are illustrating a single deck of 14 cards for a family card game. Every image you produce must look like it came from the same illustrator on the same afternoon. Hold this art direction fixed for every request:\n\nSTYLE: flat vector illustration, mid-century childrens-book look, bold simplified shapes, uniform thin dark outlines of even weight, a fine even paper grain over the whole image.\nCOLOUR: exactly four to six flat colours per image, chosen from a warm retro palette. Flat colour fills only.\nFORBIDDEN: no drop shadows, no 3D bevel or embossing, no glossy highlights, no vignette, no photorealism, no smooth airbrush gradients.\nFRAME: full-bleed poster illustration. The artwork reaches all four edges of the canvas. There is no card border, no white margin, no frame, no rounded corners, no passe-partout.\nCONTENT: no text, no numbers, no letters, no signature, no watermark, no logo anywhere in the image.\nCOMPOSITION: one clear subject, centred, filling most of the frame, on a single flat background colour.",
+
+  "cards": {
+    "0": {
+      "motif": "Einhorn",
+      "prompt": "A white unicorn seen in profile with a golden spiral horn and a pastel rainbow mane, resting on a soft cloud under a deep night sky with a crescent moon and a few drifting seed pods, a wide rainbow arcing across the lower third. Palette: deep navy, cream, pastel lilac, soft pink, gold."
+    },
+    "1": {
+      "motif": "Glühwürmchen",
+      "prompt": "A cluster of fireflies with softly glowing pale-gold abdomens drifting above tall grass stalks and two closed flower buds at night. Palette: midnight teal, warm cream, soft gold, pale mint."
+    },
+    "2": {
+      "motif": "Schmetterlinge",
+      "prompt": "Three large butterflies with boldly patterned wings hovering around a single open flower, their flight paths drawn as thin looping lines. Palette: sage green, cream, dusty rose, soft coral, pale teal."
+    },
+    "3": {
+      "motif": "Frösche",
+      "prompt": "Two plump frogs sitting on round lily pads on still water, one mid-leap above the other, with a few reeds and ripple rings. Palette: moss green, cream, olive, soft yellow, teal."
+    },
+    "4": {
+      "motif": "Vögel",
+      "prompt": "Several small birds perched among the layered leaves of a stylised tree, wings folded, arranged across the branches like cut paper shapes. Palette: teal green, cream, soft orange, olive, plum."
+    },
+    "5": {
+      "motif": "Füchse",
+      "prompt": "A curled sleeping fox with a thick brush tail wrapped around itself, a second fox peering out from behind a low bush of simple leaf shapes. Palette: warm ochre, cream, burnt orange, olive green, dark brown."
+    },
+    "6": {
+      "motif": "Mäuse",
+      "prompt": "A ring of small grey mice arranged radially around a wooden mousetrap holding a wedge of cheese in the centre, all seen from directly above. Palette: golden yellow, cream, warm grey, soft brown, dark plum."
+    },
+    "7": {
+      "motif": "Eulen",
+      "prompt": "Three owls sitting side by side on a bare branch, wide round eyes staring straight ahead, one with a single eye winking shut. Palette: amber, cream, deep brown, olive, dusky purple."
+    },
+    "8": {
+      "motif": "Schlangen",
+      "prompt": "Two long snakes coiling around each other in a symmetrical knot, flat scale patterning along their bodies, forked tongues out. Palette: mustard, cream, teal, rust, dark brown."
+    },
+    "9": {
+      "motif": "Katzen",
+      "prompt": "A sleek cat crouching low and peering around the corner of a wall, only its head, one paw and the tip of its tail visible, eyes wide. Palette: burnt orange, cream, deep teal, charcoal, dusty pink."
+    },
+    "10": {
+      "motif": "Raben",
+      "prompt": "Three ravens perched on a leaning fence post, heads turned in different directions as if watching something, a few loose feathers falling. Palette: dark plum, cream, orange, slate grey, deep blue."
+    },
+    "11": {
+      "motif": "Kobolde",
+      "prompt": "Two pointy-eared goblins with mischievous grins swapping a small sack behind their backs, one glancing sideways. Palette: rust red, cream, olive, dark brown, ochre."
+    },
+    "12": {
+      "motif": "Drachen",
+      "prompt": "A hoarding dragon curled tightly around a heap of coins and cups, wings folded over the pile, one eye open and watchful. Palette: deep crimson, cream, ember orange, charcoal, gold."
+    },
+    "13": {
+      "motif": "Höllenhund",
+      "prompt": "A menacing three-headed hellhound with glowing amber eyes and smoking breath, crouching on jagged black rocks with small licking flames around its paws. Palette: charcoal black, deep crimson, burnt orange, bone white."
+    }
+  }
+}
