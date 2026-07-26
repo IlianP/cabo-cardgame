@@ -1,13 +1,12 @@
 /**
- * Tests der Spiellogik: node --test
+ * Tests der Spiellogik: node --test test/*.test.mjs
  */
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { CaboGame, PHASE, GameError } from '../js/engine.js';
-import { createDeck, mulberry32, POWER } from '../js/deck.js';
-import { DEFAULT_RULES } from '../js/rules.js';
+import { createDeck, mulberry32, copiesOf, powerOf, POWER } from '../js/deck.js';
 
 // ------------------------------------------------------------- Hilfsmittel
 
@@ -48,38 +47,53 @@ function setHands(game, hands) {
   });
 }
 
+/** Legt eine Karte mit bestimmtem Wert oben auf den Nachziehstapel. */
+function stackDeck(game, value, copy = 0) {
+  game.state.deck.push(`v${value}-${copy}`);
+}
+
+/** Ruft Cabo für einen Spieler und lässt alle anderen einen leeren Zug machen. */
+function callCaboAndFinish(game, caller = 0) {
+  game.state.current = caller;
+  game.state.phase = PHASE.TURN;
+  game.callCabo();
+  let guard = 0;
+  while (game.state.phase !== PHASE.ROUND_END) {
+    if (guard++ > 50) throw new Error('Runde endet nicht');
+    const phase = game.state.phase;
+    if (phase === PHASE.HANDOFF) game.confirmHandoff();
+    else if (phase === PHASE.TURN) drawAndDiscard(game);
+    else if (phase === PHASE.REVEAL) game.ackReveal();
+    else throw new Error(`unerwartete Phase: ${phase}`);
+  }
+}
+
 // ------------------------------------------------------------------ Deck
 
-test('Deck hat 54 Karten mit den Cabo-Werten', () => {
-  const deck = createDeck(DEFAULT_RULES);
-  assert.equal(deck.length, 54);
+test('Deck hat 52 Karten mit den Werten 0 bis 13', () => {
+  const deck = createDeck();
+  assert.equal(deck.length, 52);
 
-  const by = Object.fromEntries(deck.map((c) => [c.id, c]));
-  assert.equal(by.SA.value, 1);
-  assert.equal(by.S10.value, 10);
-  assert.equal(by.SB.value, 11);
-  assert.equal(by.SD.value, 12);
-  assert.equal(by.SK.value, 13, 'schwarzer König zählt 13');
-  assert.equal(by.HK.value, -1, 'roter König zählt -1');
-  assert.equal(by.DK.value, -1);
-  assert.equal(by.X0.value, 0, 'Joker zählt 0');
-
-  assert.equal(by.S7.power, POWER.PEEK);
-  assert.equal(by.S8.power, POWER.PEEK);
-  assert.equal(by.S9.power, POWER.SPY);
-  assert.equal(by.S10.power, POWER.SPY);
-  assert.equal(by.SB.power, POWER.SWAP);
-  assert.equal(by.SD.power, POWER.SWAP);
-  assert.equal(by.SK.power, POWER.KING);
-  assert.equal(by.HK.power, null, 'der rote König hat keine Kraft');
-  assert.equal(by.S2.power, null);
+  const count = {};
+  for (const c of deck) count[c.value] = (count[c.value] ?? 0) + 1;
+  assert.equal(count[0], 2, 'die 0 liegt zweimal im Deck');
+  assert.equal(count[13], 2, 'die 13 liegt zweimal im Deck');
+  for (let v = 1; v <= 12; v++) assert.equal(count[v], 4, `Wert ${v} liegt viermal im Deck`);
+  assert.equal(new Set(deck.map((c) => c.id)).size, 52, 'alle Karten sind eindeutig');
 });
 
-test('roter König lässt sich auf 0 stellen und die Königskraft abschalten', () => {
-  const deck = createDeck({ ...DEFAULT_RULES, redKingValue: 0, kingPower: false });
-  const by = Object.fromEntries(deck.map((c) => [c.id, c]));
-  assert.equal(by.HK.value, 0);
-  assert.equal(by.SK.power, null);
+test('Kartenkräfte hängen am Wert, die 13 hat keine', () => {
+  assert.equal(powerOf(6), null);
+  assert.equal(powerOf(7), POWER.PEEK);
+  assert.equal(powerOf(8), POWER.PEEK);
+  assert.equal(powerOf(9), POWER.SPY);
+  assert.equal(powerOf(10), POWER.SPY);
+  assert.equal(powerOf(11), POWER.SWAP);
+  assert.equal(powerOf(12), POWER.SWAP);
+  assert.equal(powerOf(13), null, 'die 13 hat keine Kartenkraft');
+  assert.equal(powerOf(0), null);
+  assert.equal(copiesOf(0), 2);
+  assert.equal(copiesOf(5), 4);
 });
 
 // ----------------------------------------------------------------- Aufbau
@@ -90,7 +104,7 @@ test('Rundenaufbau teilt vier Karten aus und legt eine Karte ab', () => {
   assert.equal(s.round, 1);
   for (const p of s.players) assert.equal(p.hand.length, 4);
   assert.equal(s.discard.length, 1);
-  assert.equal(s.deck.length, 54 - 3 * 4 - 1);
+  assert.equal(s.deck.length, 52 - 3 * 4 - 1);
   assert.equal(s.phase, PHASE.HANDOFF, 'es beginnt mit einer Geräteübergabe');
 });
 
@@ -98,8 +112,8 @@ test('alle Karten bleiben eindeutig verteilt', () => {
   const game = newGame(['A', 'B', 'C', 'D']);
   const s = game.state;
   const all = [...s.deck, ...s.discard, ...s.players.flatMap((p) => p.hand)];
-  assert.equal(all.length, 54);
-  assert.equal(new Set(all).size, 54);
+  assert.equal(all.length, 52);
+  assert.equal(new Set(all).size, 52);
 });
 
 test('jeder sieht genau zwei Startkarten, danach beginnt der erste Zug', () => {
@@ -160,13 +174,14 @@ test('Karte aus der Ablage muss getauscht werden', () => {
   game.takeDiscard();
   assert.equal(game.state.drawnFrom, 'discard');
   assert.throws(() => game.discardDrawn(), GameError);
+  assert.throws(() => game.startMultiDiscard(), GameError, 'auch keine Mehrfach-Ablage');
 });
 
-test('Spähen deckt eine eigene Karte auf, Spionieren eine fremde', () => {
+test('Peek zeigt eine eigene Karte, Spy eine fremde', () => {
   const game = newGame();
   completeInitialPeeks(game);
 
-  game.state.deck.push('S7');
+  stackDeck(game, 7);
   game.drawFromDeck();
   game.discardDrawn();
   assert.equal(game.state.phase, PHASE.POWER);
@@ -174,12 +189,11 @@ test('Spähen deckt eine eigene Karte auf, Spionieren eine fremde', () => {
   game.selectCard(0, 1);
   assert.equal(game.state.phase, PHASE.REVEAL);
   assert.equal(game.state.reveal.viewer, 0);
-  assert.equal(game.state.reveal.cards[0].owner, 0);
   game.ackReveal();
   assert.equal(game.state.phase, PHASE.HANDOFF, 'danach ist der nächste dran');
 
   game.confirmHandoff();
-  game.state.deck.push('S9');
+  stackDeck(game, 9);
   game.drawFromDeck();
   game.discardDrawn();
   assert.throws(() => game.selectCard(1, 0), GameError, 'eigene Karte ist tabu');
@@ -188,13 +202,13 @@ test('Spähen deckt eine eigene Karte auf, Spionieren eine fremde', () => {
   assert.equal(game.state.reveal.viewer, 1, 'sehen darf nur, wer spioniert');
 });
 
-test('Bube tauscht blind zwei Karten', () => {
+test('Swap tauscht blind zwei Karten', () => {
   const game = newGame();
   completeInitialPeeks(game);
   const mine = game.state.players[0].hand[0];
   const theirs = game.state.players[2].hand[3];
 
-  game.state.deck.push('SB');
+  stackDeck(game, 11);
   game.drawFromDeck();
   game.discardDrawn();
   game.selectCard(0, 0);
@@ -206,43 +220,13 @@ test('Bube tauscht blind zwei Karten', () => {
   assert.equal(game.state.phase, PHASE.HANDOFF, 'blind heißt: nichts wird gezeigt');
 });
 
-test('König zeigt eine Karte und lässt dann entscheiden', () => {
+test('die 13 löst keine Kartenkraft aus', () => {
   const game = newGame();
   completeInitialPeeks(game);
-  const mine = game.state.players[0].hand[1];
-  const theirs = game.state.players[1].hand[2];
-
-  game.state.deck.push('SK');
+  stackDeck(game, 13);
   game.drawFromDeck();
   game.discardDrawn();
-  game.selectCard(0, 1);
-  game.selectCard(1, 2);
-  assert.equal(game.state.power.step, 'look');
-  assert.throws(() => game.selectCard(2, 0), GameError, 'nur die beiden gewählten Karten');
-
-  game.selectCard(1, 2);
-  assert.equal(game.state.reveal.cards[0].cardId, theirs);
-  game.ackReveal();
-  assert.equal(game.state.power.step, 'decide');
-
-  game.resolveKing(true);
-  assert.equal(game.state.players[0].hand[1], theirs);
-  assert.equal(game.state.players[1].hand[2], mine);
-});
-
-test('König kann auch liegen lassen', () => {
-  const game = newGame();
-  completeInitialPeeks(game);
-  const mine = game.state.players[0].hand[1];
-  game.state.deck.push('SK');
-  game.drawFromDeck();
-  game.discardDrawn();
-  game.selectCard(0, 1);
-  game.selectCard(1, 2);
-  game.selectCard(0, 1);
-  game.ackReveal();
-  game.resolveKing(false);
-  assert.equal(game.state.players[0].hand[1], mine);
+  assert.equal(game.state.phase, PHASE.HANDOFF);
 });
 
 test('leerer Nachziehstapel: die Ablage wird neu gemischt', () => {
@@ -257,22 +241,75 @@ test('leerer Nachziehstapel: die Ablage wird neu gemischt', () => {
   assert.equal(game.state.discard[game.state.discard.length - 1], top, 'die oberste Karte bleibt liegen');
 });
 
-// ------------------------------------------------------------- Cabo & Punkte
+// ----------------------------------------------------------- Mehrfach-Ablage
 
-/** Ruft Cabo für Spieler 0 und lässt alle anderen einen leeren Zug machen. */
-function callCaboAndFinish(game) {
-  game.state.current = 0;
-  game.state.phase = PHASE.TURN;
-  game.callCabo();
-  let guard = 0;
-  while (game.state.phase !== PHASE.ROUND_END) {
-    if (guard++ > 50) throw new Error('Runde endet nicht');
-    if (game.state.phase === PHASE.HANDOFF) game.confirmHandoff();
-    else if (game.state.phase === PHASE.TURN) drawAndDiscard(game);
-    else if (game.state.phase === PHASE.REVEAL) game.ackReveal();
-    else throw new Error(`unerwartete Phase: ${game.state.phase}`);
-  }
-}
+test('Mehrfach-Ablage: richtige Ansage macht Plätze frei', () => {
+  const game = newGame(['Anna', 'Bea']);
+  completeInitialPeeks(game);
+  setHands(game, [
+    ['v5-0', 'v5-1', 'v5-2', 'v9-0'],
+    ['v1-0', 'v2-0', 'v3-0', 'v4-0'],
+  ]);
+
+  stackDeck(game, 0);
+  game.drawFromDeck();
+  game.startMultiDiscard();
+  game.selectCard(0, 0);
+  game.selectCard(0, 1);
+  game.selectCard(0, 2);
+  assert.deepEqual(game.state.multi.slots, [0, 1, 2]);
+  game.confirmMultiDiscard();
+  assert.equal(game.state.reveal.isPublic, true, 'die Ansage wird offen gezeigt');
+  assert.equal(game.state.reveal.cards.length, 3);
+  game.ackReveal();
+
+  assert.deepEqual(game.state.players[0].hand, ['v0-0', null, null, 'v9-0']);
+  assert.equal(game.handSum(0), 9, 'nur noch die gezogene 0 und die 9');
+  assert.equal(game.state.phase, PHASE.HANDOFF, 'der Zug ist vorbei');
+});
+
+test('Mehrfach-Ablage: falsche Ansage kostet den Zug', () => {
+  const game = newGame(['Anna', 'Bea']);
+  completeInitialPeeks(game);
+  setHands(game, [
+    ['v5-0', 'v6-0', 'v7-0', 'v9-0'],
+    ['v1-0', 'v2-0', 'v3-0', 'v4-0'],
+  ]);
+  const before = game.state.players[0].hand.slice();
+
+  stackDeck(game, 0);
+  game.drawFromDeck();
+  game.startMultiDiscard();
+  game.selectCard(0, 0);
+  game.selectCard(0, 1);
+  game.confirmMultiDiscard();
+  game.ackReveal();
+
+  assert.deepEqual(game.state.players[0].hand, before, 'die Hand bleibt unverändert');
+  assert.equal(game.state.discard[game.state.discard.length - 1], 'v0-0', 'die gezogene Karte ist weg');
+});
+
+test('Mehrfach-Ablage: Auswahl lässt sich abwählen und abbrechen', () => {
+  const game = newGame(['Anna', 'Bea']);
+  completeInitialPeeks(game);
+  game.drawFromDeck();
+  game.startMultiDiscard();
+  game.selectCard(0, 1);
+  game.selectCard(0, 1);
+  assert.deepEqual(game.state.multi.slots, []);
+  assert.throws(() => game.confirmMultiDiscard(), GameError, 'unter zwei Karten geht nicht');
+  game.cancelMultiDiscard();
+  assert.equal(game.state.phase, PHASE.DRAWN);
+});
+
+test('abgeschaltete Mehrfach-Ablage lässt sich nicht starten', () => {
+  const game = newGame(['Anna', 'Bea'], { multiDiscard: false });
+  completeInitialPeeks(game);
+  game.drawFromDeck();
+  assert.throws(() => game.startMultiDiscard(), GameError);
+});
+
+// ------------------------------------------------------------- Cabo & Punkte
 
 test('nach dem Cabo-Ruf hat jeder andere genau einen Zug', () => {
   const game = newGame(['Anna', 'Bea', 'Cem']);
@@ -293,152 +330,129 @@ test('geglückter Cabo-Ruf bringt null Punkte', () => {
   const game = newGame(['Anna', 'Bea']);
   completeInitialPeeks(game);
   setHands(game, [
-    ['SA', 'S2', 'S3', 'S4'], // 10
-    ['S5', 'S6', 'S7', 'S8'], // 26
+    ['v1-0', 'v2-0', 'v3-0', 'v4-0'], // 10
+    ['v5-0', 'v6-0', 'v7-0', 'v8-0'], // 26
   ]);
-  callCaboAndFinish(game);
+  callCaboAndFinish(game, 0);
 
   const r = game.state.roundResult;
   assert.equal(r.callerOk, true);
   assert.deepEqual(r.sums, [10, 26]);
   assert.deepEqual(r.points, [0, 26]);
-  assert.deepEqual(game.state.players.map((p) => p.score), [0, 26]);
 });
 
-test('misslungener Cabo-Ruf kostet Strafpunkte', () => {
-  const game = newGame(['Anna', 'Bea'], { caboPenalty: 5 });
+test('misslungener Cabo-Ruf: Strafpunkte für den Rufer, 0 für die niedrigste Summe', () => {
+  const game = newGame(['Anna', 'Bea', 'Cem'], { caboPenalty: 5 });
   completeInitialPeeks(game);
   setHands(game, [
-    ['S5', 'S6', 'S7', 'S8'], // 26
-    ['SA', 'S2', 'S3', 'S4'], // 10
+    ['v5-0', 'v6-0', 'v7-0', 'v8-0'], // 26 – ruft Cabo
+    ['v1-0', 'v2-0', 'v3-0', 'v4-0'], // 10 – niedrigste Summe
+    ['v9-0', 'v2-1', 'v3-1', 'v4-1'], // 18
   ]);
-  callCaboAndFinish(game);
+  callCaboAndFinish(game, 0);
 
   const r = game.state.roundResult;
   assert.equal(r.callerOk, false);
-  assert.deepEqual(r.points, [31, 10]);
+  assert.deepEqual(r.points, [31, 0, 18], 'Bea bekommt die 0, obwohl sie nicht gerufen hat');
 });
 
-test('Gleichstand zählt für den Rufer – oder eben nicht', () => {
-  for (const [tie, expected] of [
-    [true, 0],
-    [false, 10 + 10],
-  ]) {
-    const game = newGame(['Anna', 'Bea'], { tieCountsForCaller: tie, caboPenalty: 10 });
-    completeInitialPeeks(game);
-    setHands(game, [
-      ['SA', 'S2', 'S3', 'S4'],
-      ['HA', 'H2', 'H3', 'H4'],
-    ]);
-    callCaboAndFinish(game);
-    assert.equal(game.state.roundResult.points[0], expected);
-  }
+test('ohne Cabo-Ruf bekommen alle mit der niedrigsten Summe null Punkte', () => {
+  const game = newGame(['Anna', 'Bea', 'Cem']);
+  completeInitialPeeks(game);
+  setHands(game, [
+    ['v1-0', 'v2-0', 'v3-0', 'v4-0'], // 10
+    ['v1-1', 'v2-1', 'v3-1', 'v4-1'], // 10
+    ['v9-0', 'v9-1', 'v3-2', 'v4-2'], // 25
+  ]);
+  game.state.deck = [];
+  game.state.discard = [game.state.discard[0]];
+  game.state.current = 0;
+  game.state.phase = PHASE.TURN;
+  game.drawFromDeck();
+
+  assert.equal(game.state.phase, PHASE.ROUND_END);
+  assert.equal(game.state.roundResult.reason, 'deckEmpty');
+  assert.deepEqual(game.state.roundResult.points, [0, 0, 25]);
 });
 
-test('der rote König drückt die Summe', () => {
+test('bei Gleichstand gewinnt der Cabo-Sager', () => {
   const game = newGame(['Anna', 'Bea']);
   completeInitialPeeks(game);
   setHands(game, [
-    ['HK', 'DK', 'X0', 'SA'], // -1 -1 + 0 + 1 = -1
-    ['S5', 'S6', 'S7', 'S8'],
+    ['v1-0', 'v2-0', 'v3-0', 'v4-0'], // 10 – ruft Cabo
+    ['v1-1', 'v2-1', 'v3-1', 'v4-1'], // 10
   ]);
-  callCaboAndFinish(game);
-  assert.equal(game.state.roundResult.sums[0], -1);
-});
+  callCaboAndFinish(game, 0);
 
-test('Punktlandung halbiert den Stand – aber nur einmal', () => {
-  const game = newGame(['Anna', 'Bea'], { targetScore: 100, resetAtHundred: true });
-  completeInitialPeeks(game);
-  game.state.players[0].score = 90;
-  setHands(game, [
-    ['S5', 'S5'.replace('S', 'H'), 'X0', 'X0'.replace('0', '1')], // 5 + 5 + 0 + 0 = 10
-    ['SA', 'S2', 'S3', 'S4'],
-  ]);
-  game.state.current = 1;
-  game.state.phase = PHASE.TURN;
-  game.callCabo(); // Bea ruft und gewinnt, Anna kassiert ihre 10
-  game.confirmHandoff();
-  drawAndDiscard(game);
-
-  assert.equal(game.state.players[0].score, 50, '100 wird zu 50');
-  assert.equal(game.state.players[0].usedReset, true);
-  assert.equal(game.state.gameOver, false);
-});
-
-test('Spiel endet, sobald jemand die Zielpunktzahl erreicht', () => {
-  const game = newGame(['Anna', 'Bea'], { targetScore: 100, resetAtHundred: false });
-  completeInitialPeeks(game);
-  game.state.players[1].score = 95;
-  setHands(game, [
-    ['SA', 'S2', 'S3', 'S4'], // 10
-    ['S9', 'S10', 'SB', 'SD'], // 42
-  ]);
-  callCaboAndFinish(game);
-  assert.equal(game.state.gameOver, true);
-  game.nextRound();
-  assert.equal(game.state.phase, PHASE.GAME_END);
-  assert.equal(game.standings()[0].name, 'Anna');
+  const r = game.state.roundResult;
+  assert.equal(r.callerOk, true);
+  assert.deepEqual(r.points, [0, 10], 'der Gleichstands-Partner zahlt seine Summe');
 });
 
 test('Shoot the Moon dreht die Abrechnung um', () => {
   const game = newGame(['Anna', 'Bea'], { shootTheMoon: true });
   completeInitialPeeks(game);
   setHands(game, [
-    ['SD', 'HD', 'SK', 'CK'], // zwei Damen + beide schwarzen Könige
-    ['SA', 'S2', 'S3', 'S4'],
+    ['v12-0', 'v12-1', 'v13-0', 'v13-1'],
+    ['v1-0', 'v2-0', 'v3-0', 'v4-0'],
   ]);
-  game.state.current = 1;
-  game.state.phase = PHASE.TURN;
-  game.callCabo();
-  game.confirmHandoff();
-  drawAndDiscard(game);
+  callCaboAndFinish(game, 1);
   assert.deepEqual(game.state.roundResult.points, [0, 50]);
 });
 
-// -------------------------------------------------------------- Einwerfen
-
-test('Einwerfen: Treffer wird man los, daneben kostet eine Strafkarte', () => {
-  const game = newGame(['Anna', 'Bea'], { snapEnabled: true });
+test('Punktlandung halbiert den Stand – aber nur einmal', () => {
+  const game = newGame(['Anna', 'Bea'], { targetScore: 100 });
   completeInitialPeeks(game);
+  game.state.players[0].score = 90;
+  setHands(game, [
+    ['v5-0', 'v5-1', 'v0-0', 'v0-1'], // 10
+    ['v1-0', 'v2-0', 'v3-0', 'v4-0'], // 10 – ruft Cabo und gewinnt den Gleichstand
+  ]);
+  callCaboAndFinish(game, 1);
 
-  // Anna wirft eine Sieben ab, Bea hat ebenfalls eine Sieben.
-  game.state.deck.push('S7');
-  game.state.players[1].hand[0] = 'H7';
-  game.drawFromDeck();
-  game.discardDrawn();
-  game.skipPower();
-  assert.equal(game.state.phase, PHASE.SNAP_WINDOW);
-
-  game.snapClaim(1);
-  game.confirmHandoff();
-  game.selectCard(1, 0);
-  assert.equal(game.state.reveal.isPublic, true, 'ein Einwurf wird offen gezeigt');
-  game.ackReveal();
-  assert.equal(game.state.players[1].hand[0], null, 'der Platz bleibt leer');
-  assert.equal(game.state.discard[game.state.discard.length - 1], 'H7');
-
-  // Zweiter Durchgang: daneben gegriffen.
-  game.confirmHandoff();
-  game.state.deck.push('S2');
-  game.state.players[0].hand[1] = 'H5';
-  game.drawFromDeck();
-  game.discardDrawn();
-  game.snapClaim(0);
-  game.confirmHandoff();
-  const handSizeBefore = game.state.players[0].hand.filter(Boolean).length;
-  game.selectCard(0, 1);
-  game.ackReveal();
-  assert.equal(game.state.players[0].hand[1], 'H5', 'die Karte bleibt liegen');
-  assert.equal(game.state.players[0].hand.filter(Boolean).length, handSizeBefore + 1);
+  assert.equal(game.state.players[0].score, 50, '100 wird zu 50');
+  assert.equal(game.state.players[0].usedReset, true);
+  assert.equal(game.state.gameOver, false);
 });
 
-test('leere Plätze zählen nicht mit und lassen sich nicht wählen', () => {
-  const game = newGame(['Anna', 'Bea']);
+test('Spiel endet, sobald jemand über der Zielpunktzahl liegt', () => {
+  const game = newGame(['Anna', 'Bea'], { targetScore: 100, resetAtHundred: false });
   completeInitialPeeks(game);
-  setHands(game, [[null, 'S3', null, 'S4'], ['S5', 'S6', 'S7', 'S8']]);
-  assert.equal(game.handSum(0), 7);
-  game.drawFromDeck();
-  assert.throws(() => game.swapDrawnWith(0), GameError);
+  game.state.players[1].score = 95;
+  setHands(game, [
+    ['v1-0', 'v2-0', 'v3-0', 'v4-0'], // 10
+    ['v9-0', 'v10-0', 'v11-0', 'v12-0'], // 42
+  ]);
+  callCaboAndFinish(game, 0);
+  assert.equal(game.state.gameOver, true);
+  game.nextRound();
+  assert.equal(game.state.phase, PHASE.GAME_END);
+  assert.equal(game.standings()[0].name, 'Anna');
+});
+
+// ------------------------------------------------------------- Startspieler
+
+test('der Gewinner der Vorrunde beginnt die nächste', () => {
+  const game = newGame(['Anna', 'Bea', 'Cem'], { winnerStarts: true });
+  completeInitialPeeks(game);
+  setHands(game, [
+    ['v9-0', 'v9-1', 'v8-0', 'v8-1'], // 34 – ruft Cabo, liegt daneben
+    ['v7-0', 'v7-1', 'v6-0', 'v6-1'], // 26
+    ['v1-0', 'v2-0', 'v3-0', 'v4-0'], // 10 – Sieger
+  ]);
+  callCaboAndFinish(game, 0);
+  assert.deepEqual(game.state.roundResult.winners, [2]);
+  game.nextRound();
+  assert.equal(game.state.startPlayer, 2, 'Cem beginnt Runde 2');
+});
+
+test('ohne die Regel wechselt der Startspieler einfach reihum', () => {
+  const game = newGame(['Anna', 'Bea'], { winnerStarts: false });
+  completeInitialPeeks(game);
+  assert.equal(game.state.startPlayer, 0);
+  callCaboAndFinish(game, 0);
+  game.nextRound();
+  assert.equal(game.state.startPlayer, 1);
 });
 
 // ------------------------------------------------------------- Speichern
@@ -456,12 +470,11 @@ test('Spielstand übersteht Speichern und Laden', () => {
   assert.equal(copy.state.current, 1);
 });
 
-test('die Runden wechseln den Startspieler', () => {
+test('leere Plätze zählen nicht mit und lassen sich nicht wählen', () => {
   const game = newGame(['Anna', 'Bea']);
   completeInitialPeeks(game);
-  assert.equal(game.state.startPlayer, 0);
-  callCaboAndFinish(game);
-  game.nextRound();
-  assert.equal(game.state.round, 2);
-  assert.equal(game.state.startPlayer, 1);
+  setHands(game, [[null, 'v3-0', null, 'v4-0'], ['v5-0', 'v6-0', 'v7-0', 'v8-0']]);
+  assert.equal(game.handSum(0), 7);
+  game.drawFromDeck();
+  assert.throws(() => game.swapDrawnWith(0), GameError);
 });

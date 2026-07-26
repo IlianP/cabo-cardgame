@@ -306,19 +306,43 @@ input.pin-input { flex: 0 0 96px; text-align: center; letter-spacing: .3em; }
     repeating-linear-gradient(45deg, #135640, #135640 6px, #0c3d2e 6px, #0c3d2e 12px);
   border-color: rgba(230, 184, 86, .55);
 }
-.card--up { background: var(--cream); color: var(--ink); }
-.card--up.is-red { color: var(--red); }
+/* Wertfarbe: niedrige Karten grün, hohe rot – in Cabo ist niedrig gut. */
+.card--up {
+  background: linear-gradient(160deg, hsl(var(--hue) 62% 95%), hsl(var(--hue) 50% 80%));
+  color: hsl(var(--hue) 72% 22%);
+  border-color: hsl(var(--hue) 45% 68%);
+}
+.card--art {
+  background-image: var(--art);
+  background-size: cover;
+  background-position: center;
+}
 .card--empty {
   background: rgba(0, 0, 0, .18);
   border: 1px dashed var(--line);
   box-shadow: none;
 }
-.card-face { display: flex; flex-direction: column; align-items: center; line-height: 1; }
-.card-face .r { font-size: calc(var(--card-w) * .38); }
-.card-face .s { font-size: calc(var(--card-w) * .3); }
-.card-val {
-  position: absolute; bottom: 4px; right: 6px;
-  font-size: calc(var(--card-w) * .18); opacity: .55; font-weight: 600;
+.card-num {
+  font-size: calc(var(--card-w) * .5);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -.02em;
+}
+.card-power {
+  position: absolute;
+  bottom: calc(var(--card-w) * .08);
+  font-size: calc(var(--card-w) * .16);
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  opacity: .72;
+}
+/* Auf Illustrationen braucht die Zahl einen eigenen Hintergrund. */
+.card--art .card-num,
+.card--art .card-power {
+  background: rgba(255, 255, 255, .88);
+  border-radius: 7px;
+  padding: 0 .18em;
 }
 
 .card--target {
@@ -332,6 +356,14 @@ input.pin-input { flex: 0 0 96px; text-align: center; letter-spacing: .3em; }
   50% { box-shadow: 0 0 0 7px rgba(230, 184, 86, .18), 0 3px 10px rgba(0, 0, 0, .35); }
 }
 .card--chosen { border-color: var(--ok); box-shadow: 0 0 0 3px rgba(63, 160, 106, .5); animation: none; }
+.card--chosen::before {
+  content: "✓";
+  position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--ok); color: #fff;
+  font-size: 14px; line-height: 22px; text-align: center; font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .4);
+}
 .card--known::after {
   content: "";
   position: absolute; top: 5px; right: 5px;
@@ -480,7 +512,7 @@ input.pin-input { flex: 0 0 96px; text-align: center; letter-spacing: .3em; }
 .result-table tr.is-winner td { color: var(--gold); font-weight: 700; }
 .result-hand { display: flex; gap: 5px; justify-content: flex-end; flex-wrap: wrap; }
 .result-hand .card { --card-w: 40px; box-shadow: none; }
-.result-hand .card-val { bottom: 2px; right: 3px; font-size: 10px; opacity: .7; }
+.result-hand .card-power { display: none; }
 .result-table--standings td:nth-child(2) { text-align: left; }
 .banner {
   border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; font-size: 15px; line-height: 1.45;
