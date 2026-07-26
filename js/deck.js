@@ -1,83 +1,66 @@
 /**
- * Kartendeck für Cabo.
+ * Das Cabo-Kartendeck.
  *
- * Gespielt wird mit einem normalen Skat-/Pokerblatt (52 Karten) plus zwei
- * Jokern. Die Werte bilden das Original-Cabo-Deck (0 bis 13) nach:
+ * 52 Karten mit den Werten 0 bis 13. Die 0 und die 13 liegen doppelt im
+ * Deck, alle Werte von 1 bis 12 viermal:
  *
- *   Joker        =  0
- *   Ass          =  1
- *   2 bis 10     =  Kartenwert
- *   Bube         = 11
- *   Dame         = 12
- *   schwarzer K  = 13
- *   roter König  = -1   (die begehrteste Karte im Spiel)
+ *   2 × 0     die beste Karte im Spiel
+ *   4 × 1 … 4 × 12
+ *   2 × 13    die teuerste Karte
+ *
+ * Die Zahl ist zugleich der Punktwert. Karten haben keine Farben und keine
+ * Bilder auf dieser Ebene – wie sie aussehen, entscheidet die Oberfläche.
  */
 
-export const SUITS = [
-  { id: 'S', symbol: '♠', color: 'black', name: 'Pik' },
-  { id: 'H', symbol: '♥', color: 'red', name: 'Herz' },
-  { id: 'D', symbol: '♦', color: 'red', name: 'Karo' },
-  { id: 'C', symbol: '♣', color: 'black', name: 'Kreuz' },
-];
-
-export const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'B', 'D', 'K'];
-
-export const JOKER = 'JOKER';
-
-/** Kartenkräfte, die beim Abwerfen einer frisch gezogenen Karte ausgelöst werden. */
+/** Kartenkräfte, die beim Abwerfen einer frisch gezogenen Karte wirken. */
 export const POWER = {
   PEEK: 'peek', // 7, 8   – eigene Karte ansehen
   SPY: 'spy', // 9, 10  – fremde Karte ansehen
-  SWAP: 'swap', // B, D   – blind tauschen
-  KING: 'king', // K (schwarz) – eine Karte ansehen, dann optional tauschen
+  SWAP: 'swap', // 11, 12 – blind tauschen
+};
+
+export const POWER_NAME = {
+  [POWER.PEEK]: 'Peek',
+  [POWER.SPY]: 'Spy',
+  [POWER.SWAP]: 'Swap',
 };
 
 export const POWER_LABEL = {
-  [POWER.PEEK]: 'Spähen: eigene Karte ansehen',
-  [POWER.SPY]: 'Spionieren: fremde Karte ansehen',
-  [POWER.SWAP]: 'Tauschen: blind mit einem Mitspieler tauschen',
-  [POWER.KING]: 'König: eine Karte ansehen, dann tauschen oder liegen lassen',
+  [POWER.PEEK]: 'Peek: Sieh dir eine deiner eigenen Karten an.',
+  [POWER.SPY]: 'Spy: Sieh dir die Karte eines Mitspielers an.',
+  [POWER.SWAP]: 'Swap: Tausche blind eine eigene gegen eine fremde Karte.',
 };
 
-export function cardValue(rank, suit, rules) {
-  if (rank === JOKER) return 0;
-  if (rank === 'A') return 1;
-  if (rank === 'B') return 11;
-  if (rank === 'D') return 12;
-  if (rank === 'K') return suit.color === 'red' ? rules.redKingValue : 13;
-  return Number(rank);
+export const MIN_VALUE = 0;
+export const MAX_VALUE = 13;
+
+/** Wie oft jeder Wert im Deck liegt. */
+export function copiesOf(value) {
+  return value === MIN_VALUE || value === MAX_VALUE ? 2 : 4;
 }
 
-export function cardPower(rank, suit, rules) {
-  if (rank === '7' || rank === '8') return POWER.PEEK;
-  if (rank === '9' || rank === '10') return POWER.SPY;
-  if (rank === 'B' || rank === 'D') return POWER.SWAP;
-  if (rank === 'K' && suit.color === 'black') return rules.kingPower ? POWER.KING : null;
+export function powerOf(value) {
+  if (value === 7 || value === 8) return POWER.PEEK;
+  if (value === 9 || value === 10) return POWER.SPY;
+  if (value === 11 || value === 12) return POWER.SWAP;
   return null;
 }
 
-function makeCard(id, rank, suit, rules) {
+function makeCard(value, copy) {
   return {
-    id,
-    rank,
-    suit: suit ? suit.id : null,
-    symbol: suit ? suit.symbol : '★',
-    color: suit ? suit.color : 'joker',
-    label: suit ? `${rank}${suit.symbol}` : 'Joker',
-    value: cardValue(rank, suit, rules),
-    power: suit ? cardPower(rank, suit, rules) : null,
+    id: `v${value}-${copy}`,
+    value,
+    power: powerOf(value),
+    label: String(value),
   };
 }
 
-export function createDeck(rules) {
+export function createDeck() {
   const cards = [];
-  for (const suit of SUITS) {
-    for (const rank of RANKS) {
-      cards.push(makeCard(`${suit.id}${rank}`, rank, suit, rules));
+  for (let value = MIN_VALUE; value <= MAX_VALUE; value++) {
+    for (let copy = 0; copy < copiesOf(value); copy++) {
+      cards.push(makeCard(value, copy));
     }
-  }
-  for (let i = 0; i < rules.jokerCount; i++) {
-    cards.push(makeCard(`X${i}`, JOKER, null, rules));
   }
   return cards;
 }

@@ -1,3 +1,7 @@
 node_modules/
 .DS_Store
 *.log
+
+# Originale der Bildgenerierung (je ~5 MB). Bleiben lokal liegen, damit ein
+# erneutes Umrechnen nichts kostet – gehören aber nicht ins Repository.
+tools/.art-cache/

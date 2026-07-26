@@ -7,6 +7,9 @@ Umgesetzt als **Progressive Web App** – reines HTML, CSS und JavaScript, kein 
 keine Abhängigkeiten. Die App läuft im Browser, lässt sich auf dem Startbildschirm ablegen
 und funktioniert danach offline.
 
+Gespielt wird nach den Verlagsregeln von Cabo (Smiling Monster Games / Bezier Games,
+Mandy Henning und Melissa Limes) mit dem Original-Deck von 0 bis 13.
+
 ---
 
 ## Warum eine PWA und keine Android-App?
@@ -71,71 +74,121 @@ Dann `http://localhost:8080` öffnen.
 
 ## Gespielte Regeln
 
-Ein normales Blatt mit 52 Karten plus zwei Jokern bildet das Cabo-Deck (0 bis 13) nach:
-
-| Karte | Wert |
-|---|---|
-| Joker | 0 |
-| Ass | 1 |
-| 2 – 10 | Kartenwert |
-| Bube | 11 |
-| Dame | 12 |
-| schwarzer König | 13 |
-| **roter König** | **−1** |
+**Das Deck.** 52 Karten mit den Werten 0 bis 13, die Zahl ist der Punktwert. Die 0 und die 13
+liegen je zweimal im Deck, alle Werte von 1 bis 12 je viermal. Die 0 ist die beste Karte.
 
 **Aufbau.** Jeder bekommt vier verdeckte Karten und darf sich zwei davon ansehen.
 
 **Ein Zug** besteht aus genau einer dieser Möglichkeiten:
 
-- vom verdeckten Stapel ziehen – dann tauschen oder abwerfen (Kartenkraft nutzen),
+- vom verdeckten Stapel ziehen – dann tauschen, mehrfach ablegen, oder abwerfen und die
+  Kartenkraft nutzen,
 - die oberste Ablagekarte nehmen und gegen eine eigene tauschen (keine Kartenkraft),
 - **Cabo** rufen.
+
+**Mehrfach-Ablage.** Statt einer einzelnen Karte darf man beim Ziehen auch mehrere eigene
+Karten *gleichen Wertes* gemeinsam abwerfen: ansagen, aufdecken, und danach mit weniger
+Karten weiterspielen – die gezogene Karte kommt auf einen der frei gewordenen Plätze.
+Stimmen die Werte nicht überein, wird alles wieder verdeckt und der Zug ist verloren.
 
 **Kartenkräfte** (nur beim Abwerfen einer frisch gezogenen Karte):
 
 | Karte | Kraft |
 |---|---|
-| 7, 8 | eigene Karte ansehen |
-| 9, 10 | fremde Karte ansehen |
-| Bube, Dame | blind eine eigene gegen eine fremde Karte tauschen |
-| schwarzer König | eine von zwei gewählten Karten ansehen, dann tauschen oder liegen lassen |
+| 7, 8 | **Peek** – eigene Karte ansehen |
+| 9, 10 | **Spy** – fremde Karte ansehen |
+| 11, 12 | **Swap** – blind eine eigene gegen eine fremde Karte tauschen |
+| 13 | keine |
 
-**Cabo.** Nach dem Ruf hat jeder andere noch genau einen Zug, dann wird aufgedeckt.
-Liegt der Rufer am niedrigsten, bekommt er 0 Punkte, sonst seine Kartensumme plus
-Strafpunkte. Alle anderen bekommen ihre Kartensumme. Erreicht jemand die Zielpunktzahl
-(voreingestellt 100), endet das Spiel – gewonnen hat, wer am wenigsten Punkte hat.
+**Wertung.** Nach dem Cabo-Ruf hat jeder andere noch genau einen Zug, dann wird aufgedeckt.
 
-### Umschaltbare Hausregeln
+- Die **niedrigste Summe bekommt 0 Punkte** – auch ohne Cabo-Ruf.
+- Wer Cabo gerufen hat und nicht am niedrigsten liegt, notiert seine Summe **plus 5 Strafpunkte**.
+- Alle übrigen bekommen ihre Kartensumme.
+- Bei Gleichstand um die niedrigste Summe gewinnt der Cabo-Sager; ohne Cabo-Sager bekommen
+  alle Beteiligten 0 Punkte.
+- Zwei Zwölfen und beide Dreizehnen auf der Hand: 0 Punkte für dich, 50 für alle anderen.
+- Wer genau auf 100 landet, fällt auf 50 zurück – einmal pro Spieler.
 
-Alles, was zwischen Spielgruppen verschieden gehandhabt wird, steht im
-Einrichtungsbildschirm zur Wahl:
+Sobald jemand über 100 Punkte liegt, endet das Spiel. Gewonnen hat, wer am wenigsten hat.
 
-- roter König als −1 oder 0
-- Kraft des schwarzen Königs an/aus
-- Strafpunkte für einen misslungenen Cabo-Ruf: 5 oder 10
-- Gleichstand zählt für den Rufer: ja/nein
-- Zielpunktzahl 50 / 100 / 200
-- Punktlandung halbiert den Stand (einmal pro Spieler)
-- „Shoot the Moon“ (zwei Damen + beide schwarzen Könige)
-- **Einwerfen (Snap)**: nach jedem Abwurf darf einer eine ranggleiche Karte loswerden;
-  daneben gegriffen kostet eine Strafkarte
-- Sichtschutz: Halten oder Tippen, Anzeigedauer, PIN, Merkhilfe
+### Umschaltbare Regeln
 
-2 bis 6 Spieler. Der Spielstand wird laufend im Browser gesichert; nach einem
-versehentlichen Schließen lässt sich die Partie fortsetzen.
+Im Einrichtungsbildschirm wählbar: Mehrfach-Ablage, Shoot the Moon, „Gewinner der Vorrunde
+beginnt“, Strafpunkte 5 oder 10, Zielpunktzahl 50/100/200, Punktlandung, sowie alle
+Sichtschutz-Einstellungen. 2 bis 6 Spieler.
+
+Der Spielstand wird laufend im Browser gesichert; nach einem versehentlichen Schließen lässt
+sich die Partie fortsetzen.
+
+## Kartenbilder
+
+Jeder Wert hat ein eigenes Motiv, von harmlos nach unangenehm – das unterstützt die
+Spiellogik, dass niedrig gut ist:
+
+| 0 | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| Einhorn | Glühwürmchen | Schmetterlinge | Frösche | Vögel | Füchse | Mäuse |
+
+| 7 | 8 | 9 | 10 | 11 | 12 | 13 |
+|---|---|---|---|---|---|---|
+| Eulen | Schlangen | Katzen | Raben | Kobolde | Drachen | Höllenhund |
+
+Zahl und Kraftname liegen als Overlay über dem Bild, nicht im Bild: die Zahl steht wie bei
+einer Spielkarte zweimal über Eck, der Kraftname als Band auf halber Höhe. So bleibt die
+Zahl in jeder Größe scharf und lässt sich ändern, ohne ein Bild neu zu erzeugen.
+
+Die **Rückseite ist absichtlich kein Bild**, sondern ein in `css/style.css` gezeichnetes
+Schuppenmuster aus zwei versetzten Lagen halber Kreise. Das bleibt verlustfrei in jeder
+Größe und spart eine Datei, die sonst auf jeder verdeckten Karte geladen würde.
+
+Alle 14 Bilder zusammen wiegen rund 560 kB.
+
+### Bilder neu erzeugen
+
+Erzeugt wurden sie mit **Nano Banana 2** über [fal.ai](https://fal.ai). Modell, Parameter und
+sämtliche Prompts stehen versioniert in [`tools/art-prompts.json`](tools/art-prompts.json) –
+dort wird geändert, nicht im Skript.
+
+```bash
+export FAL_KEY=…                          # niemals ins Repository
+node tools/generate-art.mjs               # alle fehlenden Werte
+node tools/generate-art.mjs 3 7 --force   # nur diese, auch wenn sie existieren
+node tools/generate-art.mjs --convert-only  # nur neu umrechnen, ohne API-Kosten
+```
+
+Die Originale (rund 5 MB je Bild) bleiben in `tools/.art-cache/` liegen und sind von der
+Versionierung ausgenommen. Ein späterer Lauf mit `--convert-only` rechnet daraus andere
+Größen oder Qualitäten, ohne noch einmal zu bezahlen. Zum Umrechnen nach WebP nimmt das
+Skript, was es findet: `cwebp`, ImageMagick oder ersatzweise Chromium über Playwright.
+
+Zwei Dinge sind für das Ergebnis entscheidend und stehen deshalb so in der Prompt-Datei:
+
+- Der **Stilblock liegt im `system_prompt`**, nicht in den einzelnen Prompts. Nur so sehen
+  alle 14 Karten aus wie von derselben Hand. Ein Versuch mit dem Stil im Motiv-Prompt
+  lieferte 14 Bilder in 14 Stilen.
+- Bilder werden **ohne Text, ohne Zahlen und ohne Rahmen** angefordert. „playing card“ im
+  Prompt zu erwähnen ist ein Fehler – dann malt das Modell einen Kartenrahmen mit ins Bild.
+
+Neue Werte trägt man in `js/art.js` ein. Fehlt dort ein Eintrag, zeichnet die Oberfläche die
+Karte wie zuvor selbst – ein gemischter Zustand ist also unproblematisch.
 
 ## Aufbau des Codes
 
 ```
 index.html              Gerüst aller Bildschirme und Overlays
-css/style.css           Gestaltung, Quer- und Hochformat
+css/style.css           Gestaltung, Kartenrückseite, Quer- und Hochformat
 js/deck.js              Kartendeck, Werte, Kartenkräfte, Mischen
-js/rules.js             Voreinstellungen und Beschreibung aller Hausregeln
+js/rules.js             Voreinstellungen und Beschreibung aller Regelschalter
 js/engine.js            Spiellogik und Zustandsmaschine – kennt keine Oberfläche
 js/privacy.js           Sichtschutz: Halten zum Ansehen, Timer-Ring
+js/art.js               Zuordnung Kartenwert -> Bilddatei
 js/ui.js                Zeichnen des Spieltisches, Eingaben
 js/app.js               Einrichtung, Einstellungen, Speichern, Start
+art/00–13.webp          die Kartenbilder
 sw.js                   Service Worker für den Offline-Betrieb
+tools/art-prompts.json  Modell, Parameter und Prompts der Bildgenerierung
+tools/generate-art.mjs  erzeugt und rechnet die Kartenbilder um
 tools/make-icons.py     erzeugt die App-Icons (nur Standardbibliothek)
 test/engine.test.mjs    Tests der Spiellogik
 ```
@@ -151,14 +204,12 @@ speichern, laden und in Tests bequem vorbereiten.
 npm test
 ```
 
-27 Tests decken Kartenwerte, Austeilen, alle vier Kartenkräfte, Nachmischen bei leerem
-Stapel, Einwerfen, die Cabo-Abrechnung inklusive Strafpunkten und Gleichstand,
-Punktlandung, Spielende und das Speichern des Spielstands ab.
+30 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
+Nachmischen bei leerem Stapel, die Abrechnung inklusive Strafpunkten und Gleichstand,
+Shoot the Moon, Punktlandung, Startspielerwechsel, Spielende und das Speichern ab.
 
 ## Was noch fehlen könnte
 
-- **Mehrgeräte-Modus**: Tablet als Tisch, jedes Handy als eigene Hand. Deutlich
-  angenehmer als Weiterreichen, braucht aber einen Server für die Verbindung –
-  bewusst nicht in dieser Fassung.
+- **Mehrgeräte-Modus**: Tablet als Tisch, jedes Handy als eigene Hand – siehe Issue #1.
 - **Computergegner** für Partien zu zweit.
 - **Statistik** über mehrere Abende.

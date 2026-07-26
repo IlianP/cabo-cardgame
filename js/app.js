@@ -7,8 +7,10 @@ import { CaboGame, PHASE } from './engine.js';
 import { DEFAULT_RULES, RULE_GROUPS } from './rules.js';
 import { mount, unmount, render, showModal, closeModal, toast } from './ui.js';
 
-const STORE_SETTINGS = 'cabo.settings.v1';
-const STORE_GAME = 'cabo.game.v1';
+// Version im Schlüssel: nach dem Wechsel auf die Verlagsregeln passen alte
+// Spielstände und Einstellungen nicht mehr und werden schlicht ignoriert.
+const STORE_SETTINGS = 'cabo.settings.v2';
+const STORE_GAME = 'cabo.game.v2';
 const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 6;
 
@@ -256,12 +258,10 @@ const HELP = `
 <p>Am Ende jeder Runde zählen die Werte deiner Handkarten zusammen. Wer über das ganze Spiel
 die wenigsten Punkte sammelt, gewinnt. Du siehst deine eigenen Karten fast nie – merken ist alles.</p>
 
-<h3>Kartenwerte</h3>
-<ul>
-  <li>Joker = 0, Ass = 1, Zahlenkarten = ihr Wert</li>
-  <li>Bube = 11, Dame = 12, schwarzer König = 13</li>
-  <li><b>Roter König = −1</b> – die beste Karte im Spiel</li>
-</ul>
+<h3>Das Deck</h3>
+<p>52 Karten mit den Werten 0 bis 13. Die Zahl ist der Punktwert. Die <b>0</b> liegt zweimal im
+Deck und ist die beste Karte, die <b>13</b> ebenfalls zweimal und ist die teuerste. Alle Werte
+von 1 bis 12 gibt es viermal.</p>
 
 <h3>Aufbau</h3>
 <p>Jeder bekommt vier verdeckte Karten. Zu Beginn darf sich jeder zwei davon ansehen – danach
@@ -277,25 +277,32 @@ bleiben alle Karten verdeckt liegen und dürfen nicht umsortiert werden.</p>
   <li><b>Cabo rufen.</b></li>
 </ul>
 
+<h3>Mehrfach-Ablage</h3>
+<p>Statt nur einer Karte darfst du beim Ziehen auch <b>mehrere eigene Karten gleichen Wertes</b>
+gemeinsam abwerfen. Du sagst es an, deckst sie auf – und spielst danach mit weniger Karten
+weiter, die gezogene Karte kommt auf einen der frei gewordenen Plätze. Stimmt der Wert nicht
+überein, wird alles wieder verdeckt und der Zug ist verloren.</p>
+
 <h3>Kartenkräfte</h3>
 <p>Sie wirken nur, wenn du die Karte frisch vom verdeckten Stapel gezogen und dann abgeworfen hast.</p>
 <ul>
-  <li><b>7 und 8 – Spähen:</b> sieh dir eine deiner eigenen Karten an.</li>
-  <li><b>9 und 10 – Spionieren:</b> sieh dir eine fremde Karte an.</li>
-  <li><b>Bube und Dame – Tauschen:</b> tausche eine deiner Karten blind gegen eine fremde.</li>
-  <li><b>Schwarzer König:</b> wähle eine eigene und eine fremde Karte, sieh dir eine der beiden an
-      und entscheide dann, ob getauscht wird.</li>
+  <li><b>7 und 8 – Peek:</b> sieh dir eine deiner eigenen Karten an.</li>
+  <li><b>9 und 10 – Spy:</b> sieh dir eine fremde Karte an.</li>
+  <li><b>11 und 12 – Swap:</b> tausche eine deiner Karten blind gegen eine fremde.</li>
+  <li>Die 13 hat keine Kraft.</li>
 </ul>
 
 <h3>Cabo rufen</h3>
 <p>Wer glaubt, am niedrigsten zu liegen, ruft statt eines Zuges „Cabo“. Alle anderen haben dann
 noch genau einen Zug, danach wird aufgedeckt.</p>
 <ul>
-  <li>Rufer liegt am niedrigsten: <b>0 Punkte</b>.</li>
-  <li>Rufer liegt daneben: seine Kartensumme <b>plus Strafpunkte</b>.</li>
-  <li>Alle anderen bekommen ihre Kartensumme gutgeschrieben.</li>
+  <li><b>Die niedrigste Summe bekommt 0 Punkte</b> – auch ohne Cabo-Ruf.</li>
+  <li>Wer Cabo gerufen hat und nicht am niedrigsten liegt, notiert seine Kartensumme
+      <b>plus Strafpunkte</b>.</li>
+  <li>Alle übrigen bekommen ihre Kartensumme gutgeschrieben.</li>
+  <li>Bei Gleichstand um die niedrigste Summe gewinnt der Cabo-Sager.</li>
 </ul>
-<p>Sobald jemand die Zielpunktzahl erreicht, endet das Spiel – gewonnen hat, wer am wenigsten
+<p>Sobald jemand über der Zielpunktzahl liegt, endet das Spiel – gewonnen hat, wer am wenigsten
 Punkte hat.</p>
 
 <h3>Sichtschutz auf einem Gerät</h3>

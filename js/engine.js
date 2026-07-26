@@ -1,5 +1,5 @@
 /**
- * Cabo – Spiellogik.
+ * Cabo – Spiellogik nach den Verlagsregeln.
  *
  * Diese Datei kennt keine Oberfläche: sie hält den Spielzustand, prüft
  * Züge und schaltet die Zustandsmaschine weiter. Der Zustand ist bewusst
@@ -10,7 +10,7 @@
  *
  *   handoff -> peek (je Spieler)          Startkarten ansehen
  *   handoff -> turn -> drawn -> power     ein Zug
- *           -> snapWindow -> snapPick     optionales Einwerfen
+ *                   -> multi             mehrere gleiche Karten ablegen
  *   ... bis jemand Cabo ruft und alle anderen noch je einen Zug hatten
  *   roundEnd -> nächste Runde oder gameEnd
  *
@@ -27,10 +27,9 @@ export const PHASE = {
   PEEK: 'peek',
   TURN: 'turn',
   DRAWN: 'drawn',
+  MULTI: 'multi',
   POWER: 'power',
   REVEAL: 'reveal',
-  SNAP_WINDOW: 'snapWindow',
-  SNAP_PICK: 'snapPick',
   ROUND_END: 'roundEnd',
   GAME_END: 'gameEnd',
 };
@@ -63,21 +62,21 @@ export class CaboGame {
         })),
         round: 0,
         startPlayer: 0,
+        nextStart: 0,
         current: 0,
         phase: PHASE.ROUND_END,
         cards: {},
         deck: [],
         discard: [],
+        knowledge: {},
         handoff: null,
         peek: null,
         drawn: null,
         drawnFrom: null,
+        multi: null,
         power: null,
         reveal: null,
-        snap: null,
         cabo: null,
-        discardTouched: false,
-        pendingRoundOver: false,
         roundResult: null,
         gameOver: false,
         log: [],
@@ -112,13 +111,18 @@ export class CaboGame {
   /** Der Spieler, der das Gerät gerade in der Hand hält (oder null). */
   get viewer() {
     const s = this.state;
-    if (s.phase === PHASE.HANDOFF) return null;
-    if (s.phase === PHASE.PEEK) return s.peek.order[s.peek.index];
-    if (s.phase === PHASE.SNAP_PICK) return s.snap.claimer;
-    if (s.phase === PHASE.REVEAL) return s.reveal.viewer;
-    if (s.phase === PHASE.ROUND_END || s.phase === PHASE.GAME_END) return null;
-    if (s.phase === PHASE.SNAP_WINDOW) return null;
-    return s.current;
+    switch (s.phase) {
+      case PHASE.HANDOFF:
+      case PHASE.ROUND_END:
+      case PHASE.GAME_END:
+        return null;
+      case PHASE.PEEK:
+        return s.peek.order[s.peek.index];
+      case PHASE.REVEAL:
+        return s.reveal.viewer;
+      default:
+        return s.current;
+    }
   }
 
   toJSON() {
@@ -144,8 +148,7 @@ export class CaboGame {
     const r = s.rules;
     s.round += 1;
 
-    const deck = createDeck(r);
-    shuffle(deck, this.rng);
+    const deck = shuffle(createDeck(), this.rng);
     s.cards = {};
     for (const c of deck) s.cards[c.id] = c;
     s.deck = deck.map((c) => c.id);
@@ -163,14 +166,12 @@ export class CaboGame {
     s.cabo = null;
     s.drawn = null;
     s.drawnFrom = null;
+    s.multi = null;
     s.power = null;
     s.reveal = null;
-    s.snap = null;
-    s.discardTouched = false;
-    s.pendingRoundOver = false;
     s.roundResult = null;
 
-    s.startPlayer = (s.round - 1) % s.players.length;
+    s.startPlayer = s.nextStart % s.players.length;
     s.current = s.startPlayer;
 
     const order = s.players.map((_, i) => (s.startPlayer + i) % s.players.length);
@@ -203,7 +204,6 @@ export class CaboGame {
     s.handoff = null;
     if (resume === 'peek') s.phase = PHASE.PEEK;
     else if (resume === 'turn') s.phase = PHASE.TURN;
-    else if (resume === 'snapPick') s.phase = PHASE.SNAP_PICK;
     else fail(`Unbekannte Fortsetzung: ${resume}`);
     this.emit();
     return { ok: true };
@@ -225,10 +225,7 @@ export class CaboGame {
     s.reveal = null;
     if (next === 'peekNext') this._peekNext();
     else if (next === 'endTurn') this._endTurn();
-    else if (next === 'kingDecide') {
-      s.power.step = 'decide';
-      s.phase = PHASE.POWER;
-    } else if (next === 'snapResolve') this._snapResolve();
+    else if (next === 'multiResolve') this._multiResolve();
     else fail(`Unbekannte Fortsetzung: ${next}`);
     this.emit();
   }
@@ -257,14 +254,12 @@ export class CaboGame {
 
   _drawCard() {
     const s = this.state;
-    if (s.deck.length === 0) {
-      // Ablagestapel bis auf die oberste Karte zurück ins Spiel.
-      if (s.discard.length > 1) {
-        const top = s.discard.pop();
-        s.deck = shuffle(s.discard, this.rng);
-        s.discard = [top];
-        this.log('Nachziehstapel war leer – Ablage neu gemischt.');
-      }
+    if (s.deck.length === 0 && s.discard.length > 1) {
+      // Oberste Ablagekarte bleibt liegen, der Rest wird neu gemischt.
+      const top = s.discard.pop();
+      s.deck = shuffle(s.discard, this.rng);
+      s.discard = [top];
+      this.log('Nachziehstapel war leer – Ablage neu gemischt.');
     }
     return s.deck.length ? s.deck.pop() : null;
   }
@@ -315,11 +310,8 @@ export class CaboGame {
     const outgoing = hand[slot];
     hand[slot] = s.drawn;
     s.discard.push(outgoing);
-    s.discardTouched = true;
     this._forgetSlot(s.current, slot);
-    // Die eingetauschte Karte kennt man selbst – man hat sie eben gesehen.
-    if (s.drawnFrom === 'deck') s.knowledge[s.current][slot] = s.drawn;
-    else s.knowledge[s.current][slot] = s.drawn;
+    s.knowledge[s.current][slot] = s.drawn;
 
     this.log(`${this.currentPlayer.name} tauscht Platz ${slot + 1}.`);
     s.drawn = null;
@@ -335,17 +327,102 @@ export class CaboGame {
 
     const card = this.card(s.drawn);
     s.discard.push(s.drawn);
-    s.discardTouched = true;
     s.drawn = null;
-    this.log(`${this.currentPlayer.name} wirft ${card.label} ab.`);
+    this.log(`${this.currentPlayer.name} wirft die ${card.value} ab.`);
 
     if (card.power) {
-      s.power = { type: card.power, step: powerFirstStep(card.power), own: null, target: null };
+      s.power = { type: card.power, step: card.power === POWER.SWAP ? 'own' : 'pick', own: null, target: null };
       s.phase = PHASE.POWER;
     } else {
       this._endTurn();
     }
     this.emit();
+  }
+
+  // ------------------------------------------------------- Mehrfach-Ablage
+
+  /**
+   * Mehrere eigene Karten gleichen Wertes gemeinsam abwerfen. Man sagt an,
+   * deckt auf – und spielt bei richtiger Ansage mit weniger Karten weiter.
+   * Bei falscher Ansage ist der Zug verloren.
+   */
+  startMultiDiscard() {
+    const s = this.state;
+    if (s.phase !== PHASE.DRAWN) fail('Das geht gerade nicht.');
+    if (!s.rules.multiDiscard) fail('Die Mehrfach-Ablage ist ausgeschaltet.');
+    if (s.drawnFrom !== 'deck') fail('Das geht nur mit einer frisch gezogenen Karte.');
+    s.multi = { slots: [] };
+    s.phase = PHASE.MULTI;
+    this.emit();
+  }
+
+  cancelMultiDiscard() {
+    const s = this.state;
+    if (s.phase !== PHASE.MULTI) fail('Das geht gerade nicht.');
+    s.multi = null;
+    s.phase = PHASE.DRAWN;
+    this.emit();
+  }
+
+  _multiSelect(playerId, slot) {
+    const s = this.state;
+    if (playerId !== s.current) fail('Wähle deine eigenen Karten.');
+    if (this.currentPlayer.hand[slot] == null) fail('Auf diesem Platz liegt keine Karte.');
+    const at = s.multi.slots.indexOf(slot);
+    if (at >= 0) s.multi.slots.splice(at, 1);
+    else s.multi.slots.push(slot);
+    this.emit();
+  }
+
+  confirmMultiDiscard() {
+    const s = this.state;
+    if (s.phase !== PHASE.MULTI) fail('Das geht gerade nicht.');
+    const slots = s.multi.slots;
+    if (slots.length < 2) fail('Wähle mindestens zwei Karten – oder brich ab.');
+
+    const hand = this.currentPlayer.hand;
+    const values = slots.map((slot) => this.card(hand[slot]).value);
+    const hit = values.every((v) => v === values[0]);
+    s.multi.hit = hit;
+
+    // Angesagt wird immer offen – auch die misslungene Ansage.
+    this._reveal({
+      cards: slots.map((slot) => ({ owner: s.current, slot, cardId: hand[slot] })),
+      title: hit ? 'Passt!' : 'Nicht gleich',
+      note: hit
+        ? `${slots.length}× die ${values[0]} – diese Karten sind weg.`
+        : 'Die Werte sind nicht alle gleich. Alles wird wieder verdeckt, der Zug ist verloren.',
+      isPublic: true,
+      next: 'multiResolve',
+    });
+    this.emit();
+  }
+
+  _multiResolve() {
+    const s = this.state;
+    const { slots, hit } = s.multi;
+    const player = this.currentPlayer;
+
+    if (hit) {
+      const sorted = [...slots].sort((a, b) => a - b);
+      for (const slot of sorted) {
+        s.discard.push(player.hand[slot]);
+        player.hand[slot] = null;
+        this._forgetSlot(s.current, slot);
+      }
+      // Die gezogene Karte kommt auf den ersten frei gewordenen Platz.
+      const target = sorted[0];
+      player.hand[target] = s.drawn;
+      s.knowledge[s.current][target] = s.drawn;
+      this.log(`${player.name} legt ${sorted.length} gleiche Karten ab.`);
+    } else {
+      s.discard.push(s.drawn);
+      this.log(`${player.name} sagt daneben und verliert den Zug.`);
+    }
+
+    s.drawn = null;
+    s.multi = null;
+    this._endTurn();
   }
 
   // ------------------------------------------------------------ Kartenkraft
@@ -370,10 +447,10 @@ export class CaboGame {
       case PHASE.DRAWN:
         if (playerId !== s.current) fail('Tausche mit einer deiner eigenen Karten.');
         return this.swapDrawnWith(slot);
+      case PHASE.MULTI:
+        return this._multiSelect(playerId, slot);
       case PHASE.POWER:
         return this._powerSelect(playerId, slot);
-      case PHASE.SNAP_PICK:
-        return this._snapSelect(playerId, slot);
       default:
         fail('Diese Karte lässt sich gerade nicht auswählen.');
     }
@@ -407,7 +484,7 @@ export class CaboGame {
     if (card == null) fail('Auf diesem Platz liegt keine Karte.');
 
     if (p.type === POWER.PEEK) {
-      if (playerId !== s.current) fail('Diese Kraft gilt nur für deine eigenen Karten.');
+      if (playerId !== s.current) fail('Peek gilt nur für deine eigenen Karten.');
       s.knowledge[s.current][slot] = card;
       s.power = null;
       this._reveal({
@@ -420,7 +497,7 @@ export class CaboGame {
     }
 
     if (p.type === POWER.SPY) {
-      if (playerId === s.current) fail('Diese Kraft gilt nur für fremde Karten.');
+      if (playerId === s.current) fail('Spy gilt nur für fremde Karten.');
       s.power = null;
       this._reveal({
         cards: [{ owner: playerId, slot, cardId: card }],
@@ -431,7 +508,7 @@ export class CaboGame {
       return this.emit();
     }
 
-    // Tauschen und König laufen beide über: erst eigene, dann fremde Karte.
+    // Swap: erst eine eigene, dann eine fremde Karte.
     if (p.step === 'own') {
       if (playerId !== s.current) fail('Wähle zuerst eine deiner eigenen Karten.');
       p.own = { owner: playerId, slot };
@@ -442,43 +519,13 @@ export class CaboGame {
     if (p.step === 'target') {
       if (playerId === s.current) fail('Wähle jetzt die Karte eines Mitspielers.');
       p.target = { owner: playerId, slot };
-      if (p.type === POWER.SWAP) {
-        this._applySwap(p.own, p.target);
-        s.power = null;
-        this._endTurn();
-        return this.emit();
-      }
-      p.step = 'look';
-      return this.emit();
-    }
-
-    if (p.step === 'look') {
-      const isOwn = playerId === p.own.owner && slot === p.own.slot;
-      const isTarget = playerId === p.target.owner && slot === p.target.slot;
-      if (!isOwn && !isTarget) fail('Sieh dir eine der beiden markierten Karten an.');
-      if (isOwn) s.knowledge[s.current][slot] = card;
-      p.looked = { owner: playerId, slot };
-      this._reveal({
-        cards: [{ owner: playerId, slot, cardId: card }],
-        title: isOwn ? 'Deine Karte' : `Karte von ${s.players[playerId].name}`,
-        note: 'Danach entscheidest du, ob getauscht wird.',
-        viewer: s.current,
-        next: 'kingDecide',
-      });
+      this._applySwap(p.own, p.target);
+      s.power = null;
+      this._endTurn();
       return this.emit();
     }
 
     fail('Diese Karte lässt sich gerade nicht auswählen.');
-  }
-
-  /** König: nach dem Blick tauschen oder liegen lassen. */
-  resolveKing(doSwap) {
-    const s = this.state;
-    if (s.phase !== PHASE.POWER || s.power?.step !== 'decide') fail('Das geht gerade nicht.');
-    if (doSwap) this._applySwap(s.power.own, s.power.target);
-    s.power = null;
-    this._endTurn();
-    this.emit();
   }
 
   _applySwap(a, b) {
@@ -498,100 +545,18 @@ export class CaboGame {
     delete this.state.knowledge[owner][slot];
   }
 
-  // -------------------------------------------------------------- Einwerfen
+  // ------------------------------------------------------------ Zugwechsel
 
   _endTurn() {
     const s = this.state;
     s.drawn = null;
     s.drawnFrom = null;
+    s.multi = null;
     s.power = null;
 
     if (s.cabo && s.cabo.caller !== s.current) s.cabo.turnsRemaining -= 1;
-    s.pendingRoundOver = Boolean(s.cabo && s.cabo.turnsRemaining <= 0);
+    if (s.cabo && s.cabo.turnsRemaining <= 0) return this._endRound('cabo');
 
-    if (!s.pendingRoundOver && s.rules.snapEnabled && s.discardTouched) {
-      s.snap = { claimer: null };
-      s.phase = PHASE.SNAP_WINDOW;
-      return;
-    }
-    this._advance();
-  }
-
-  snapClaim(playerId) {
-    const s = this.state;
-    if (s.phase !== PHASE.SNAP_WINDOW) fail('Gerade kann nicht eingeworfen werden.');
-    s.snap.claimer = playerId;
-    this._handoff(playerId, 'snapPick');
-    this.emit();
-  }
-
-  snapPass() {
-    const s = this.state;
-    if (s.phase !== PHASE.SNAP_WINDOW) fail('Gerade kann nicht eingeworfen werden.');
-    s.snap = null;
-    this._advance();
-    this.emit();
-  }
-
-  _snapSelect(playerId, slot) {
-    const s = this.state;
-    if (playerId !== s.snap.claimer) fail('Wähle eine deiner eigenen Karten.');
-    const id = s.players[playerId].hand[slot];
-    if (id == null) fail('Auf diesem Platz liegt keine Karte.');
-
-    s.snap.slot = slot;
-    s.snap.cardId = id;
-    const top = this.card(s.discard[s.discard.length - 1]);
-    s.snap.hit = top && this.card(id).rank === top.rank;
-
-    // Ein Einwurf wird immer offen gezeigt – auch der danebengegangene.
-    this._reveal({
-      cards: [{ owner: playerId, slot, cardId: id }],
-      title: s.snap.hit ? 'Treffer!' : 'Daneben',
-      note: s.snap.hit
-        ? `${this.card(id).label} passt auf ${top.label}.`
-        : `${this.card(id).label} passt nicht auf ${top.label} – das kostet eine Strafkarte.`,
-      isPublic: true,
-      next: 'snapResolve',
-    });
-    this.emit();
-  }
-
-  _snapResolve() {
-    const s = this.state;
-    const { claimer, slot, hit } = s.snap;
-    const player = s.players[claimer];
-
-    if (hit) {
-      s.discard.push(player.hand[slot]);
-      player.hand[slot] = null;
-      this._forgetSlot(claimer, slot);
-      this.log(`${player.name} wirft erfolgreich ein.`);
-    } else {
-      const penalty = this._drawCard();
-      if (penalty != null) {
-        const empty = player.hand.indexOf(null);
-        if (empty >= 0) {
-          player.hand[empty] = penalty;
-          this._forgetSlot(claimer, empty);
-        } else {
-          player.hand.push(penalty);
-        }
-      }
-      this.log(`${player.name} greift daneben und bekommt eine Strafkarte.`);
-    }
-    s.snap = null;
-    this._advance();
-  }
-
-  _advance() {
-    const s = this.state;
-    s.snap = null;
-    s.discardTouched = false;
-    if (s.pendingRoundOver) {
-      s.pendingRoundOver = false;
-      return this._endRound('cabo');
-    }
     s.current = (s.current + 1) % s.players.length;
     this._handoff(s.current, 'turn');
   }
@@ -605,12 +570,13 @@ export class CaboGame {
     );
   }
 
+  /** Zwei Zwölfen und beide Dreizehnen. */
   _isMoonHand(playerId) {
-    const cards = this.state.players[playerId].hand.filter((id) => id != null).map((id) => this.card(id));
-    if (cards.length !== 4) return false;
-    const queens = cards.filter((c) => c.rank === 'D').length;
-    const blackKings = cards.filter((c) => c.rank === 'K' && c.color === 'black').length;
-    return queens === 2 && blackKings === 2;
+    const values = this.state.players[playerId].hand
+      .filter((id) => id != null)
+      .map((id) => this.card(id).value);
+    if (values.length !== 4) return false;
+    return values.filter((v) => v === 12).length === 2 && values.filter((v) => v === 13).length === 2;
   }
 
   _endRound(reason) {
@@ -619,16 +585,26 @@ export class CaboGame {
     const sums = s.players.map((p) => this.handSum(p.id));
     const points = sums.slice();
 
+    const lowest = Math.min(...sums);
+    const winners = sums.map((v, i) => (v === lowest ? i : -1)).filter((i) => i >= 0);
     const moon = r.shootTheMoon ? s.players.findIndex((p) => this._isMoonHand(p.id)) : -1;
+    const caller = s.cabo ? s.cabo.caller : null;
     let callerOk = null;
 
     if (moon >= 0) {
       s.players.forEach((p, i) => (points[i] = i === moon ? 0 : 50));
-    } else if (s.cabo) {
-      const caller = s.cabo.caller;
-      const best = Math.min(...sums.filter((_, i) => i !== caller));
-      callerOk = r.tieCountsForCaller ? sums[caller] <= best : sums[caller] < best;
-      points[caller] = callerOk ? 0 : sums[caller] + r.caboPenalty;
+    } else if (caller != null) {
+      // Bei Gleichstand gewinnt der Cabo-Sager.
+      callerOk = sums[caller] === lowest;
+      if (callerOk) {
+        points[caller] = 0;
+      } else {
+        points[caller] = sums[caller] + r.caboPenalty;
+        for (const w of winners) points[w] = 0;
+      }
+    } else {
+      // Ohne Cabo-Ruf bekommen alle Gleichstands-Beteiligten null Punkte.
+      for (const w of winners) points[w] = 0;
     }
 
     const before = s.players.map((p) => p.score);
@@ -642,7 +618,7 @@ export class CaboGame {
       }
     });
 
-    s.gameOver = s.players.some((p) => p.score >= r.targetScore);
+    s.gameOver = s.players.some((p) => p.score > r.targetScore);
 
     s.roundResult = {
       reason,
@@ -652,13 +628,27 @@ export class CaboGame {
       after: s.players.map((p) => p.score),
       resets,
       moon: moon >= 0 ? moon : null,
-      caller: s.cabo ? s.cabo.caller : null,
+      caller,
       callerOk,
       hands: s.players.map((p) => p.hand.slice()),
-      winners: lowestIndices(sums),
+      winners,
     };
+
+    s.nextStart = r.winnerStarts
+      ? this._roundWinner(winners)
+      : (s.startPlayer + 1) % s.players.length;
+
     s.phase = PHASE.ROUND_END;
     this.log(`Runde ${s.round} beendet.`);
+  }
+
+  /** Startspieler der nächsten Runde: Sieger, bei Patt der mit weniger Gesamtpunkten. */
+  _roundWinner(winners) {
+    const s = this.state;
+    if (winners.length === 1) return winners[0];
+    const best = Math.min(...winners.map((i) => s.players[i].score));
+    const tied = winners.filter((i) => s.players[i].score === best);
+    return tied.length === 1 ? tied[0] : tied[Math.floor(this.rng() * tied.length)];
   }
 
   nextRound() {
@@ -678,13 +668,4 @@ export class CaboGame {
       .map((p) => ({ id: p.id, name: p.name, score: p.score }))
       .sort((a, b) => a.score - b.score);
   }
-}
-
-function powerFirstStep(type) {
-  return type === POWER.PEEK || type === POWER.SPY ? 'pick' : 'own';
-}
-
-function lowestIndices(values) {
-  const min = Math.min(...values);
-  return values.map((v, i) => (v === min ? i : -1)).filter((i) => i >= 0);
 }

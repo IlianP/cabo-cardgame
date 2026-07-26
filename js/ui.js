@@ -8,7 +8,8 @@
  */
 
 import { PHASE } from './engine.js';
-import { POWER, POWER_LABEL } from './deck.js';
+import { POWER, POWER_NAME, MAX_VALUE } from './deck.js';
+import { artFor, CARD_BACK } from './art.js';
 import { attachReveal, makeTimerRing } from './privacy.js';
 
 const $ = (id) => document.getElementById(id);
@@ -84,17 +85,23 @@ function guard(fn) {
 }
 
 /**
- * Vorderseite einer Karte. Die Wertmarke unten rechts erscheint nur, wo
- * der Wert nicht ohnehin auf der Karte steht – also bei Ass, Bube, Dame,
- * König und Joker.
+ * Farbton nach Kartenwert: niedrige Karten grün, hohe rot. Das ist kein
+ * Schmuck, sondern eine Lesehilfe – in Cabo ist niedrig gut.
+ */
+function hueFor(value) {
+  return Math.round((170 - (value / MAX_VALUE) * 175 + 360) % 360);
+}
+
+/**
+ * Vorderseite: die Zahl steht wie bei einer Spielkarte zweimal über Eck,
+ * damit sie das Motiv nicht verdeckt und aus jeder Blickrichtung lesbar
+ * ist. Der Name der Kartenkraft liegt als Band im unteren Drittel.
  */
 function cardFaceHTML(card) {
-  const rank = card.rank === 'JOKER' ? '★' : card.rank;
-  const showValue = !/^\d+$/.test(card.rank);
+  const power = card.power ? `<span class="card-power">${POWER_NAME[card.power]}</span>` : '';
   return (
-    `<span class="card-face"><span class="r">${esc(rank)}</span>` +
-    `<span class="s">${esc(card.symbol)}</span></span>` +
-    (showValue ? `<span class="card-val">${card.value}</span>` : '')
+    `<span class="card-num card-num--tl">${card.value}</span>` +
+    `<span class="card-num card-num--br">${card.value}</span>${power}`
   );
 }
 
@@ -103,9 +110,18 @@ function cardMarkup(card, { faceUp, extra = '', classes = [], slotNo = null }) {
     return `<div class="card card--empty ${classes.join(' ')}" ${extra}></div>`;
   }
   const cls = ['card', faceUp ? 'card--up' : 'card--down', ...classes];
-  if (faceUp && card.color === 'red') cls.push('is-red');
+  const styles = [`--hue:${hueFor(card.value)}`];
+
+  const art = faceUp ? artFor(card.value) : CARD_BACK;
+  if (art) {
+    cls.push('card--art');
+    styles.push(`--art:url('${art}')`);
+  }
+
   const label = slotNo != null ? `<span class="card-slot">${slotNo}</span>` : '';
-  return `<div class="${cls.join(' ')}" ${extra}>${faceUp ? cardFaceHTML(card) : ''}${label}</div>`;
+  return `<div class="${cls.join(' ')}" style="${styles.join(';')}" ${extra}>${
+    faceUp ? cardFaceHTML(card) : ''
+  }${label}</div>`;
 }
 
 // --------------------------------------------------------------- Auswahl
@@ -118,21 +134,14 @@ function isSelectable(s, owner, slot) {
       return owner === me && !s.peek.taken.includes(slot);
     }
     case PHASE.DRAWN:
+    case PHASE.MULTI:
       return owner === s.current;
-    case PHASE.SNAP_PICK:
-      return owner === s.snap.claimer;
     case PHASE.POWER: {
       const p = s.power;
       if (p.type === POWER.PEEK) return owner === s.current;
       if (p.type === POWER.SPY) return owner !== s.current;
       if (p.step === 'own') return owner === s.current;
       if (p.step === 'target') return owner !== s.current;
-      if (p.step === 'look') {
-        return (
-          (owner === p.own.owner && slot === p.own.slot) ||
-          (owner === p.target.owner && slot === p.target.slot)
-        );
-      }
       return false;
     }
     default:
@@ -141,6 +150,9 @@ function isSelectable(s, owner, slot) {
 }
 
 function isChosen(s, owner, slot) {
+  if (s.phase === PHASE.MULTI) {
+    return owner === s.current && s.multi.slots.includes(slot);
+  }
   const p = s.power;
   if (!p) return false;
   for (const key of ['own', 'target']) {
@@ -215,11 +227,18 @@ function renderSeats() {
 function renderCenter() {
   const s = game.state;
   el.deckCount.textContent = s.deck.length;
+
   const top = s.discard.length ? game.card(s.discard[s.discard.length - 1]) : null;
   el.discardCard.className = 'pile-card';
+  el.discardCard.removeAttribute('style');
   if (top) {
     el.discardCard.classList.add('card', 'card--up');
-    if (top.color === 'red') el.discardCard.classList.add('is-red');
+    const art = artFor(top.value);
+    el.discardCard.style.setProperty('--hue', hueFor(top.value));
+    if (art) {
+      el.discardCard.classList.add('card--art');
+      el.discardCard.style.setProperty('--art', `url('${art}')`);
+    }
     el.discardCard.innerHTML = cardFaceHTML(top);
   } else {
     el.discardCard.classList.add('card', 'card--empty');
@@ -238,7 +257,10 @@ function renderCenter() {
     const fromDeck = s.drawnFrom === 'deck';
     const wrap = document.createElement('div');
     wrap.className = 'hold-wrap';
-    wrap.innerHTML = cardMarkup(card, { faceUp: !fromDeck, classes: fromDeck ? ['card--peekable'] : [] });
+    wrap.innerHTML = cardMarkup(card, {
+      faceUp: !fromDeck,
+      classes: fromDeck ? ['card--peekable'] : [],
+    });
     const caption = document.createElement('p');
     caption.className = 'drawn-caption';
     caption.textContent = fromDeck
@@ -256,18 +278,24 @@ function renderCenter() {
 function attachCardReveal(node, card, ringHost) {
   const ring = makeTimerRing();
   (ringHost || node).append(ring.el);
+  const art = artFor(card.value);
   const detach = attachReveal(node, {
     settings,
     onShow: () => {
       node.classList.remove('card--down');
       node.classList.add('card--up');
-      if (card.color === 'red') node.classList.add('is-red');
+      node.style.setProperty('--hue', hueFor(card.value));
+      if (art) {
+        node.classList.add('card--art');
+        node.style.setProperty('--art', `url('${art}')`);
+      }
       node.insertAdjacentHTML('afterbegin', cardFaceHTML(card));
     },
     onHide: () => {
       node.classList.add('card--down');
-      node.classList.remove('card--up', 'is-red');
-      node.querySelectorAll('.card-face, .card-val').forEach((n) => n.remove());
+      node.classList.remove('card--up');
+      if (art) node.classList.remove('card--art');
+      node.querySelectorAll('.card-num, .card-power').forEach((n) => n.remove());
     },
     onProgress: (f) => ring.set(f),
   });
@@ -294,11 +322,7 @@ function describe() {
           : `<b>${esc(name)}</b> ist am Zug.`,
         buttons: [
           { label: 'Karte ziehen', kind: 'primary', run: () => game.drawFromDeck() },
-          {
-            label: 'Ablage nehmen',
-            run: () => game.takeDiscard(),
-            disabled: !s.discard.length,
-          },
+          { label: 'Ablage nehmen', run: () => game.takeDiscard(), disabled: !s.discard.length },
           {
             label: 'Cabo rufen',
             kind: 'danger',
@@ -307,58 +331,55 @@ function describe() {
           },
         ],
       };
-    case PHASE.DRAWN:
+    case PHASE.DRAWN: {
+      if (s.drawnFrom !== 'deck') {
+        return { prompt: 'Tippe auf die Karte, die du dafür abgibst.', buttons: [] };
+      }
+      const buttons = [];
+      if (game.rules.multiDiscard) {
+        buttons.push({ label: 'Mehrere gleiche ablegen', run: () => game.startMultiDiscard() });
+      }
+      buttons.push({ label: 'Abwerfen', run: () => game.discardDrawn() });
+      return {
+        prompt: 'Tippe auf eine deiner Karten, um zu tauschen – oder wirf die gezogene Karte ab.',
+        buttons,
+      };
+    }
+    case PHASE.MULTI: {
+      const n = s.multi.slots.length;
       return {
         prompt:
-          s.drawnFrom === 'deck'
-            ? 'Tippe auf eine deiner Karten, um zu tauschen – oder wirf die gezogene Karte ab.'
-            : 'Tippe auf die Karte, die du dafür abgibst.',
-        buttons:
-          s.drawnFrom === 'deck'
-            ? [{ label: 'Abwerfen', run: () => game.discardDrawn() }]
-            : [],
+          n < 2
+            ? 'Wähle mindestens zwei eigene Karten, von denen du glaubst, dass sie denselben Wert haben.'
+            : `<b>${n} Karten</b> gewählt. Stimmt der Wert nicht überein, ist der Zug verloren.`,
+        buttons: [
+          {
+            label: 'Ansagen und aufdecken',
+            kind: 'primary',
+            run: () => game.confirmMultiDiscard(),
+            disabled: n < 2,
+          },
+          { label: 'Abbrechen', run: () => game.cancelMultiDiscard() },
+        ],
       };
+    }
     case PHASE.POWER: {
       const p = s.power;
       const skip = { label: 'Kraft verfallen lassen', run: () => game.skipPower() };
       if (p.type === POWER.PEEK) {
-        return { prompt: 'Spähen: Tippe auf eine deiner eigenen Karten.', buttons: [skip] };
+        return { prompt: 'Peek: Tippe auf eine deiner eigenen Karten.', buttons: [skip] };
       }
       if (p.type === POWER.SPY) {
-        return { prompt: 'Spionieren: Tippe auf die Karte eines Mitspielers.', buttons: [skip] };
-      }
-      if (p.step === 'own') {
-        return { prompt: 'Wähle zuerst eine deiner eigenen Karten.', buttons: [skip] };
-      }
-      if (p.step === 'target') {
-        return { prompt: 'Wähle jetzt die Karte eines Mitspielers.', buttons: [skip] };
-      }
-      if (p.step === 'look') {
-        return {
-          prompt: 'König: Welche der beiden markierten Karten möchtest du ansehen?',
-          buttons: [skip],
-        };
+        return { prompt: 'Spy: Tippe auf die Karte eines Mitspielers.', buttons: [skip] };
       }
       return {
-        prompt: 'Tauschen oder liegen lassen?',
-        buttons: [
-          { label: 'Tauschen', kind: 'primary', run: () => game.resolveKing(true) },
-          { label: 'Liegen lassen', run: () => game.resolveKing(false) },
-        ],
+        prompt:
+          p.step === 'own'
+            ? 'Swap: Wähle zuerst eine deiner eigenen Karten.'
+            : 'Swap: Wähle jetzt die Karte eines Mitspielers.',
+        buttons: [skip],
       };
     }
-    case PHASE.SNAP_WINDOW: {
-      const top = game.card(s.discard[s.discard.length - 1]);
-      return {
-        prompt: `Einwerfen auf <b>${esc(top ? top.label : '–')}</b>? Wer eine ranggleiche Karte hat, meldet sich.`,
-        buttons: [
-          ...s.players.map((p) => ({ label: p.name, run: () => game.snapClaim(p.id) })),
-          { label: 'Niemand', kind: 'primary', run: () => game.snapPass() },
-        ],
-      };
-    }
-    case PHASE.SNAP_PICK:
-      return { prompt: 'Tippe auf die Karte, die du einwerfen willst.', buttons: [] };
     default:
       return { prompt: '', buttons: [] };
   }
@@ -381,12 +402,6 @@ function renderActions() {
 
 // ---------------------------------------------------------- Übergabesperre
 
-function gateTaskText(resume) {
-  if (resume === 'peek') return `Sieh dir ${game.rules.initialPeeks} deiner Karten an.`;
-  if (resume === 'snapPick') return 'Du willst einwerfen – wähle gleich deine Karte.';
-  return 'Du bist am Zug.';
-}
-
 function renderGate() {
   const s = game.state;
   const open = s.phase === PHASE.HANDOFF;
@@ -403,7 +418,10 @@ function renderGate() {
     el.pinError.textContent = '';
   }
   el.gateName.textContent = player.name;
-  el.gateTask.textContent = gateTaskText(s.handoff.resume);
+  el.gateTask.textContent =
+    s.handoff.resume === 'peek'
+      ? `Sieh dir ${game.rules.initialPeeks} deiner Karten an.`
+      : 'Du bist am Zug.';
 
   const needsPin = game.rules.usePins && Boolean(player.pin);
   el.gatePin.classList.toggle('hidden', !needsPin);
@@ -527,26 +545,33 @@ function handMarkup(hand) {
 function roundResultBody() {
   const s = game.state;
   const r = s.roundResult;
+  const zeroed = s.players.filter((p) => r.points[p.id] === 0).map((p) => p.name);
+
   let banner = '';
   if (r.moon != null) {
     banner = `<div class="banner">Shoot the Moon! <b>${esc(
       s.players[r.moon].name,
-    )}</b> hatte zwei Damen und beide schwarzen Könige – 0 Punkte, alle anderen bekommen 50.</div>`;
-  } else if (r.reason === 'deckEmpty') {
-    banner = '<div class="banner">Der Nachziehstapel war leer – die Runde endet ohne Cabo-Ruf.</div>';
-  } else if (r.caller != null) {
-    const callerName = esc(s.players[r.caller].name);
-    banner = r.callerOk
-      ? `<div class="banner"><b>${callerName}</b> lag am niedrigsten – der Ruf sitzt, 0 Punkte.</div>`
-      : `<div class="banner is-bad"><b>${callerName}</b> hat sich verrufen: ${
-          r.sums[r.caller]
-        } + ${game.rules.caboPenalty} Strafpunkte.</div>`;
+    )}</b> hatte zwei Zwölfen und beide Dreizehnen – 0 Punkte, alle anderen bekommen 50.</div>`;
+  } else if (r.caller == null) {
+    banner = `<div class="banner">${
+      r.reason === 'deckEmpty' ? 'Der Nachziehstapel war leer. ' : ''
+    }Ohne Cabo-Ruf bekommt die niedrigste Summe 0 Punkte: <b>${esc(zeroed.join(', '))}</b>.</div>`;
+  } else if (r.callerOk) {
+    banner = `<div class="banner"><b>${esc(
+      s.players[r.caller].name,
+    )}</b> lag am niedrigsten – der Ruf sitzt, 0 Punkte.</div>`;
+  } else {
+    banner = `<div class="banner is-bad"><b>${esc(s.players[r.caller].name)}</b> hat sich verrufen: ${
+      r.sums[r.caller]
+    } + ${game.rules.caboPenalty} Strafpunkte. Die 0 geht an <b>${esc(zeroed.join(', '))}</b>.</div>`;
   }
 
   const rows = s.players
     .map((p) => {
-      const cls = r.winners.includes(p.id) ? ' class="is-winner"' : '';
-      const reset = r.resets.includes(p.id) ? ' <span class="muted">(Punktlandung → halbiert)</span>' : '';
+      const cls = r.points[p.id] === 0 ? ' class="is-winner"' : '';
+      const reset = r.resets.includes(p.id)
+        ? ' <span class="muted">(Punktlandung → halbiert)</span>'
+        : '';
       return `<tr${cls}>
         <td>${esc(p.name)}${r.caller === p.id ? ' <span class="muted">· Cabo</span>' : ''}</td>
         <td>${handMarkup(r.hands[p.id])}</td>
@@ -695,8 +720,4 @@ export function unmount() {
   el.reveal.classList.add('hidden');
   closeModal();
   game = null;
-}
-
-export function powerHelp(type) {
-  return POWER_LABEL[type] ?? '';
 }
