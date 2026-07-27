@@ -208,6 +208,7 @@ js/deck.js              Kartendeck, Werte, Kartenkräfte, Mischen
 js/rules.js             Voreinstellungen und Beschreibung aller Regelschalter
 js/engine.js            Spiellogik und Zustandsmaschine – kennt keine Oberfläche
 js/privacy.js           Sichtschutz: Halten zum Ansehen, Timer-Ring
+js/view.js              Sichten: was ein einzelnes Gerät erfahren darf
 js/art.js               Zuordnung Kartenwert -> Bilddatei
 js/debug.js             Debug-Zustand als kopierbarer Text
 js/ui.js                Zeichnen des Spieltisches, Eingaben
@@ -219,6 +220,7 @@ tools/generate-art.mjs  erzeugt und rechnet die Kartenbilder um
 tools/make-icons.py     erzeugt die App-Icons (nur Standardbibliothek)
 test/engine.test.mjs    Tests der Spiellogik
 test/debug.test.mjs     Tests von Ereignis-Verlauf und Debug-Bericht
+test/view.test.mjs      Tests der Sichten-Filterung
 ```
 
 Die Trennung ist bewusst scharf: `engine.js` enthält keine einzige DOM-Zeile, und die
@@ -232,13 +234,48 @@ speichern, laden und in Tests bequem vorbereiten.
 npm test
 ```
 
-38 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
+56 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
 Nachmischen bei leerem Stapel, die Abrechnung inklusive Strafpunkten und Gleichstand,
 Shoot the Moon, Punktlandung, Startspielerwechsel, Spielende und das Speichern ab –
-dazu den Ereignis-Verlauf und den Debug-Bericht.
+dazu den Ereignis-Verlauf, den Debug-Bericht und die Sichten-Filterung.
+
+## Mehrgeräte-Modus (in Arbeit)
+
+Geplant ist: das Tablet liegt fest in der Mitte und zeigt nur den öffentlichen Tisch, jeder
+Spieler öffnet zusätzlich auf dem eigenen Handy eine Seite mit seiner Hand (Issue #1). Der
+erste Baustein steht: **`js/view.js` schneidet den Spielzustand auf ein einzelnes Gerät zu.**
+
+```js
+import { tableView, playerView } from './js/view.js';
+
+tableView(game.state);        // Stapel, Ablage, Punkte, Verlauf – keine Hand
+playerView(game.state, 2);    // dazu das, was genau dieser Spieler sehen darf
+```
+
+Beide Funktionen sind rein (Zustand rein, JSON raus) und lassen erst gar nicht weg, was
+geheim ist – statt es später zu verstecken:
+
+- **Karten-IDs verraten ihren Wert** (`v7-1` ist immer eine 7). Deshalb wird pro Sicht
+  gesammelt, welche Karten der Zuschauer sehen darf; nur diese landen im Feld `cards`,
+  alle übrigen Plätze sind bloß „hier liegt eine Karte“.
+- **PINs verlassen den Gastgeber nie** – weitergegeben wird nur `hasPin`.
+- **Der Verlauf wird neu geschrieben**, nicht gesäubert: Der Engine-Verlauf notiert Karten
+  im Klartext, die öffentliche Fassung entsteht aus den Ereignisdaten, Ereignisart für
+  Ereignisart. Unbekannte Ereignisarten fallen heraus statt durchzurutschen.
+- **Aufdeckungen folgen dem Feld `viewer`**: private nur an ihr Gerät, öffentliche
+  (Mehrfach-Ablage, Rundenende) an alle.
+- **Ohne Merkhilfe bleibt auch die eigene Hand verdeckt** – das Vergessen der eigenen Karten
+  ist der Kern von Cabo und soll nicht am Handy scheitern.
+
+Die Tests prüfen das nicht feldweise, sondern suchen in der fertigen Sicht nach Karten-IDs
+und verlangen für jede gefundene eine Berechtigung – egal, in welchem Feld sie steckt.
+
+Was noch fehlt: der Transport zwischen den Geräten (WebRTC mit dem Tablet als Gastgeber),
+die Zuordnung Gerät → Spieler, Wiederverbinden nach Bildschirmsperre und die Rückfallebene
+in den Ein-Gerät-Modus. Der Ein-Gerät-Modus benutzt `view.js` nicht und bleibt unverändert.
 
 ## Was noch fehlen könnte
 
-- **Mehrgeräte-Modus**: Tablet als Tisch, jedes Handy als eigene Hand – siehe Issue #1.
+- **Mehrgeräte-Modus**: Transport und Beitritt – siehe Issue #1.
 - **Computergegner** für Partien zu zweit.
 - **Statistik** über mehrere Abende.
