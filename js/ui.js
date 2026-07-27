@@ -640,9 +640,7 @@ function renderEndScreens() {
 // ------------------------------------------------------------ Debug-Knopf
 
 function renderDebugButton() {
-  const on = Boolean(game?.rules.debugState);
-  el.debugBtn.classList.toggle('hidden', !on);
-  document.body.classList.toggle('has-debug', on);
+  el.debugBtn.classList.toggle('hidden', !game?.rules.debugState);
 }
 
 /**
@@ -654,11 +652,11 @@ async function onDebugClick() {
   if (!game) return;
   const { ok, text } = await copyDebugState(game);
   if (ok) {
-    toast('Debug-Zustand kopiert 🐛');
+    toast('Debug-Zustand kopiert 🪲');
     return;
   }
   showModal({
-    title: 'Debug-Zustand 🐛',
+    title: 'Debug-Zustand 🪲',
     body:
       '<p class="muted">Das Kopieren hat nicht geklappt. Text markieren und von Hand kopieren – ' +
       'Achtung, alle Karten stehen darin im Klartext.</p>' +
@@ -751,7 +749,6 @@ export function unmount() {
   for (const d of detachers) d();
   detachers = [];
   el.debugBtn.classList.add('hidden');
-  document.body.classList.remove('has-debug');
   el.screenGame.classList.add('hidden');
   el.gate.classList.add('hidden');
   el.reveal.classList.add('hidden');

@@ -1,7 +1,7 @@
 /**
  * Debug-Zustand: der ganze Tisch als kopierbarer Text.
  *
- * Der 🐛-Knopf im Spiel ruft `copyDebugState()` auf. Der Text ist so
+ * Der 🪲-Knopf im Spiel ruft `copyDebugState()` auf. Der Text ist so
  * gebaut, dass er sich in eine Fehlermeldung einfügen lässt und dabei
  * beides enthält: eine lesbare Zusammenfassung für Menschen und den
  * vollständigen Zustand als JSON, aus dem sich die Lage exakt

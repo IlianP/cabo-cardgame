@@ -118,7 +118,7 @@ Im Einrichtungsbildschirm wählbar: Mehrfach-Ablage, Shoot the Moon, „Gewinner
 beginnt“, Strafpunkte 5 oder 10, Zielpunktzahl 50/100/200, Punktlandung, sowie alle
 Sichtschutz-Einstellungen. 2 bis 6 Spieler.
 
-## Debug-Zustand 🐛
+## Debug-Zustand 🪲
 
 Im Spiel liegt oben links ein kleiner Käfer – nur das Emoji, ohne Beschriftung, und er
 verschiebt nichts außer dem Menü-Knopf daneben. Ein Tipp darauf legt den kompletten

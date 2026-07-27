@@ -30,7 +30,7 @@ export const DEFAULT_RULES = {
   memoryAid: false, // eigene, bereits gesehene Karten markieren
 
   // --- Fehlersuche ---
-  debugState: true, // 🐛-Knopf: Spielzustand und Verlauf in die Zwischenablage
+  debugState: true, // 🪲-Knopf: Spielzustand und Verlauf in die Zwischenablage
 };
 
 export const RULE_GROUPS = [
@@ -125,7 +125,7 @@ export const RULE_GROUPS = [
     items: [
       {
         key: 'debugState',
-        label: 'Debug-Zustand (🐛)',
+        label: 'Debug-Zustand (🪲)',
         type: 'toggle',
         hint: 'Blendet im Spiel einen kleinen Käfer-Knopf ein. Ein Tipp darauf kopiert Spielzustand und Verlauf in die Zwischenablage – praktisch für Fehlermeldungen. Achtung: der kopierte Text enthält alle Karten im Klartext.',
       },
