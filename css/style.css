@@ -551,6 +551,21 @@ input.pin-input { flex: 0 0 96px; text-align: center; letter-spacing: .3em; }
 }
 .banner.is-bad { background: rgba(200, 51, 47, .18); border-color: rgba(200, 51, 47, .5); }
 
+/* --------------------------- Debug-Zustand --------------------------- */
+
+/* Sitzt im HUD zwischen dem Menü- und dem Runden-Knopf, trägt nur das Emoji. */
+.debug-btn { opacity: .6; }
+.debug-btn:active { opacity: 1; }
+
+.debug-text {
+  width: 100%; min-height: 40vh;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px; line-height: 1.4;
+  color: var(--cream); background: rgba(0, 0, 0, .35);
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px; white-space: pre;
+}
+
 .toast {
   position: fixed; left: 50%; bottom: calc(24px + var(--safe-b));
   transform: translateX(-50%);

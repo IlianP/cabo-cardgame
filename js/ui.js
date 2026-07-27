@@ -11,6 +11,7 @@ import { PHASE } from './engine.js';
 import { POWER, POWER_NAME, MAX_VALUE } from './deck.js';
 import { artFor, CARD_BACK } from './art.js';
 import { attachReveal, makeTimerRing } from './privacy.js';
+import { copyDebugState } from './debug.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -47,6 +48,7 @@ const el = {
   modalActions: $('modal-actions'),
   modalClose: $('modal-close'),
   toast: $('toast'),
+  debugBtn: $('btn-debug'),
 };
 
 let game = null;
@@ -635,6 +637,35 @@ function renderEndScreens() {
   }
 }
 
+// ------------------------------------------------------------ Debug-Knopf
+
+function renderDebugButton() {
+  el.debugBtn.classList.toggle('hidden', !game?.rules.debugState);
+}
+
+/**
+ * Ein Tipp auf den Käfer legt den Zustand in die Zwischenablage. Auf den
+ * Bildschirm kommt er nur, wenn das Kopieren scheitert – sonst stünden
+ * am Tisch plötzlich alle Karten offen da.
+ */
+async function onDebugClick() {
+  if (!game) return;
+  const { ok, text } = await copyDebugState(game);
+  if (ok) {
+    toast('Debug-Zustand kopiert 🪲');
+    return;
+  }
+  showModal({
+    title: 'Debug-Zustand 🪲',
+    body:
+      '<p class="muted">Das Kopieren hat nicht geklappt. Text markieren und von Hand kopieren – ' +
+      'Achtung, alle Karten stehen darin im Klartext.</p>' +
+      `<textarea class="debug-text" readonly>${esc(text)}</textarea>`,
+    actions: [{ label: 'Schließen', kind: 'primary' }],
+  });
+  el.modalBody.querySelector('.debug-text')?.select();
+}
+
 // ----------------------------------------------------------------- Gesamt
 
 export function render() {
@@ -648,6 +679,7 @@ export function render() {
   renderActions();
   renderGate();
   renderReveal();
+  renderDebugButton();
 
   const modalPhase = s.phase === PHASE.ROUND_END || s.phase === PHASE.GAME_END;
   if (modalPhase) renderEndScreens();
@@ -700,6 +732,7 @@ function wire() {
 
   el.revealOk.addEventListener('click', () => guard(() => game.ackReveal()));
   el.modalClose.addEventListener('click', closeModal);
+  el.debugBtn.addEventListener('click', onDebugClick);
   $('btn-menu').addEventListener('click', () => hooks.onMenu?.());
 }
 
@@ -715,6 +748,7 @@ export function mount(instance, callbacks = {}) {
 export function unmount() {
   for (const d of detachers) d();
   detachers = [];
+  el.debugBtn.classList.add('hidden');
   el.screenGame.classList.add('hidden');
   el.gate.classList.add('hidden');
   el.reveal.classList.add('hidden');

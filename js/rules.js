@@ -28,6 +28,9 @@ export const DEFAULT_RULES = {
   holdToReveal: true, // Karte nur sichtbar, solange der Finger daraufliegt
   peekSeconds: 5, // Maximale Anzeigedauer einer geheimen Karte
   memoryAid: false, // eigene, bereits gesehene Karten markieren
+
+  // --- Fehlersuche ---
+  debugState: true, // 🪲-Knopf: Spielzustand und Verlauf in die Zwischenablage
 };
 
 export const RULE_GROUPS = [
@@ -114,6 +117,17 @@ export const RULE_GROUPS = [
         label: 'Merkhilfe',
         type: 'toggle',
         hint: 'Zeigt dir dauerhaft an, welche deiner eigenen Karten du schon gesehen hast. Macht das Spiel deutlich leichter.',
+      },
+    ],
+  },
+  {
+    title: 'Fehlersuche',
+    items: [
+      {
+        key: 'debugState',
+        label: 'Debug-Zustand (🪲)',
+        type: 'toggle',
+        hint: 'Blendet im Spiel einen kleinen Käfer-Knopf ein. Ein Tipp darauf kopiert Spielzustand und Verlauf in die Zwischenablage – praktisch für Fehlermeldungen. Achtung: der kopierte Text enthält alle Karten im Klartext.',
       },
     ],
   },
