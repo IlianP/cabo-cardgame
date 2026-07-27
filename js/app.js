@@ -214,8 +214,8 @@ function startGame(fromState = null) {
 
 /** Nur die Bedien-Einstellungen dürfen eine laufende Partie überschreiben. */
 function pickDisplayRules(source) {
-  const { holdToReveal, peekSeconds, usePins, memoryAid } = source;
-  return { holdToReveal, peekSeconds, usePins, memoryAid };
+  const { holdToReveal, peekSeconds, usePins, memoryAid, debugState } = source;
+  return { holdToReveal, peekSeconds, usePins, memoryAid, debugState };
 }
 
 function openMenu() {
@@ -229,8 +229,11 @@ function openMenu() {
     ],
   });
   const container = document.getElementById('live-rules');
-  const displayGroup = RULE_GROUPS.find((g) => g.title.startsWith('Sichtschutz'));
-  renderRuleGroups(container, [displayGroup]);
+  // Sichtschutz und Debug-Knopf lassen sich mitten in der Partie umstellen.
+  const live = RULE_GROUPS.filter(
+    (g) => g.title.startsWith('Sichtschutz') || g.title === 'Fehlersuche',
+  );
+  renderRuleGroups(container, live);
 }
 
 function confirmAbort() {

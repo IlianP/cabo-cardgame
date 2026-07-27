@@ -80,6 +80,7 @@ export class CaboGame {
         roundResult: null,
         gameOver: false,
         log: [],
+        logSeq: 0,
       };
       this.startRound();
     }
@@ -136,9 +137,32 @@ export class CaboGame {
     return game;
   }
 
-  log(text) {
-    this.state.log.push({ round: this.state.round, text });
-    if (this.state.log.length > 200) this.state.log.shift();
+  /**
+   * Schreibt einen Eintrag in den Verlauf.
+   *
+   * Neben dem lesbaren Text steht in jedem Eintrag, *was* genau passiert
+   * ist: Art des Zuges, handelnder Spieler, betroffene Plätze und
+   * Karten-IDs. Der Debug-Zustand liest das aus, ohne raten zu müssen,
+   * und die Einträge überleben Speichern und Laden.
+   */
+  log(text, event = {}) {
+    const s = this.state;
+    s.logSeq = (s.logSeq ?? 0) + 1;
+    s.log.push({
+      n: s.logSeq,
+      round: s.round,
+      phase: s.phase,
+      actor: event.actor ?? null,
+      ...event,
+      text,
+    });
+    if (s.log.length > 200) s.log.shift();
+  }
+
+  /** Karte als kurzer Debug-Bezeichner: "v7-1(7)". */
+  _tag(id) {
+    const c = this.card(id);
+    return c ? `${c.id}(${c.value})` : String(id);
   }
 
   // ------------------------------------------------------------- Rundenlauf
@@ -177,7 +201,13 @@ export class CaboGame {
     const order = s.players.map((_, i) => (s.startPlayer + i) % s.players.length);
     s.peek = { order, index: 0, taken: [] };
 
-    this.log(`Runde ${s.round} beginnt.`);
+    this.log(`Runde ${s.round} beginnt.`, {
+      type: 'roundStart',
+      startPlayer: s.startPlayer,
+      hands: s.players.map((p) => p.hand.slice()),
+      discardTop: s.discard[s.discard.length - 1] ?? null,
+      deckLeft: s.deck.length,
+    });
     this._handoff(order[0], 'peek');
     this.emit();
   }
@@ -259,7 +289,11 @@ export class CaboGame {
       const top = s.discard.pop();
       s.deck = shuffle(s.discard, this.rng);
       s.discard = [top];
-      this.log('Nachziehstapel war leer – Ablage neu gemischt.');
+      this.log('Nachziehstapel war leer – Ablage neu gemischt.', {
+        type: 'reshuffle',
+        actor: s.current,
+        deckLeft: s.deck.length,
+      });
     }
     return s.deck.length ? s.deck.pop() : null;
   }
@@ -276,6 +310,13 @@ export class CaboGame {
     s.drawn = id;
     s.drawnFrom = 'deck';
     s.phase = PHASE.DRAWN;
+    this.log(`${this.currentPlayer.name} zieht ${this._tag(id)} vom Stapel.`, {
+      type: 'draw',
+      actor: s.current,
+      from: 'deck',
+      card: id,
+      deckLeft: s.deck.length,
+    });
     this.emit();
   }
 
@@ -286,6 +327,12 @@ export class CaboGame {
     s.drawn = s.discard.pop();
     s.drawnFrom = 'discard';
     s.phase = PHASE.DRAWN;
+    this.log(`${this.currentPlayer.name} nimmt ${this._tag(s.drawn)} aus der Ablage.`, {
+      type: 'draw',
+      actor: s.current,
+      from: 'discard',
+      card: s.drawn,
+    });
     this.emit();
   }
 
@@ -294,7 +341,11 @@ export class CaboGame {
     if (s.phase !== PHASE.TURN) fail('Das geht gerade nicht.');
     if (s.cabo) fail('Cabo wurde bereits gerufen.');
     s.cabo = { caller: s.current, turnsRemaining: s.players.length - 1 };
-    this.log(`${this.currentPlayer.name} ruft Cabo!`);
+    this.log(`${this.currentPlayer.name} ruft Cabo!`, {
+      type: 'cabo',
+      actor: s.current,
+      turnsRemaining: s.cabo.turnsRemaining,
+    });
     this._endTurn();
     this.emit();
   }
@@ -313,7 +364,20 @@ export class CaboGame {
     this._forgetSlot(s.current, slot);
     s.knowledge[s.current][slot] = s.drawn;
 
-    this.log(`${this.currentPlayer.name} tauscht Platz ${slot + 1}.`);
+    this.log(
+      `${this.currentPlayer.name} tauscht Platz ${slot + 1}: ${this._tag(outgoing)} raus, ${this._tag(
+        s.drawn,
+      )} rein.`,
+      {
+        type: 'swapDrawn',
+        actor: s.current,
+        from: s.drawnFrom,
+        slot,
+        cardIn: s.drawn,
+        cardOut: outgoing,
+        hand: hand.slice(),
+      },
+    );
     s.drawn = null;
     this._endTurn();
     this.emit();
@@ -327,8 +391,13 @@ export class CaboGame {
 
     const card = this.card(s.drawn);
     s.discard.push(s.drawn);
+    this.log(`${this.currentPlayer.name} wirft die ${card.value} ab.`, {
+      type: 'discardDrawn',
+      actor: s.current,
+      card: s.drawn,
+      power: card.power ?? null,
+    });
     s.drawn = null;
-    this.log(`${this.currentPlayer.name} wirft die ${card.value} ab.`);
 
     if (card.power) {
       s.power = { type: card.power, step: card.power === POWER.SWAP ? 'own' : 'pick', own: null, target: null };
@@ -353,12 +422,23 @@ export class CaboGame {
     if (s.drawnFrom !== 'deck') fail('Das geht nur mit einer frisch gezogenen Karte.');
     s.multi = { slots: [] };
     s.phase = PHASE.MULTI;
+    this.log(`${this.currentPlayer.name} beginnt eine Mehrfach-Ablage.`, {
+      type: 'multiStart',
+      actor: s.current,
+      drawn: s.drawn,
+      hand: this.currentPlayer.hand.slice(),
+    });
     this.emit();
   }
 
   cancelMultiDiscard() {
     const s = this.state;
     if (s.phase !== PHASE.MULTI) fail('Das geht gerade nicht.');
+    this.log(`${this.currentPlayer.name} bricht die Mehrfach-Ablage ab.`, {
+      type: 'multiCancel',
+      actor: s.current,
+      slots: s.multi.slots.slice(),
+    });
     s.multi = null;
     s.phase = PHASE.DRAWN;
     this.emit();
@@ -371,6 +451,19 @@ export class CaboGame {
     const at = s.multi.slots.indexOf(slot);
     if (at >= 0) s.multi.slots.splice(at, 1);
     else s.multi.slots.push(slot);
+    this.log(
+      `${this.currentPlayer.name} ${at >= 0 ? 'nimmt Platz' : 'wählt Platz'} ${slot + 1} ${
+        at >= 0 ? 'wieder heraus' : 'für die Mehrfach-Ablage'
+      }.`,
+      {
+        type: 'multiSelect',
+        actor: s.current,
+        slot,
+        picked: at < 0,
+        card: this.currentPlayer.hand[slot],
+        slots: s.multi.slots.slice(),
+      },
+    );
     this.emit();
   }
 
@@ -384,6 +477,22 @@ export class CaboGame {
     const values = slots.map((slot) => this.card(hand[slot]).value);
     const hit = values.every((v) => v === values[0]);
     s.multi.hit = hit;
+
+    this.log(
+      `${this.currentPlayer.name} sagt ${slots.length} gleiche an (Plätze ${slots
+        .map((x) => x + 1)
+        .join(', ')}): ${hit ? 'passt' : 'daneben'}.`,
+      {
+        type: 'multiClaim',
+        actor: s.current,
+        slots: slots.slice(),
+        cards: slots.map((slot) => hand[slot]),
+        values,
+        hit,
+        drawn: s.drawn,
+        hand: hand.slice(),
+      },
+    );
 
     // Angesagt wird immer offen – auch die misslungene Ansage.
     this._reveal({
@@ -405,6 +514,7 @@ export class CaboGame {
 
     if (hit) {
       const sorted = [...slots].sort((a, b) => a - b);
+      const dropped = sorted.map((slot) => ({ slot, card: player.hand[slot] }));
       for (const slot of sorted) {
         s.discard.push(player.hand[slot]);
         player.hand[slot] = null;
@@ -414,10 +524,30 @@ export class CaboGame {
       const target = sorted[0];
       player.hand[target] = s.drawn;
       s.knowledge[s.current][target] = s.drawn;
-      this.log(`${player.name} legt ${sorted.length} gleiche Karten ab.`);
+      this.log(
+        `${player.name} legt ${sorted.length} gleiche Karten ab (Plätze ${sorted
+          .map((x) => x + 1)
+          .join(', ')}); ${this._tag(s.drawn)} kommt auf Platz ${target + 1}.`,
+        {
+          type: 'multiResolve',
+          actor: s.current,
+          hit: true,
+          dropped,
+          targetSlot: target,
+          drawn: s.drawn,
+          hand: player.hand.slice(),
+        },
+      );
     } else {
       s.discard.push(s.drawn);
-      this.log(`${player.name} sagt daneben und verliert den Zug.`);
+      this.log(`${player.name} sagt daneben und verliert den Zug.`, {
+        type: 'multiResolve',
+        actor: s.current,
+        hit: false,
+        slots: slots.slice(),
+        drawn: s.drawn,
+        hand: player.hand.slice(),
+      });
     }
 
     s.drawn = null;
@@ -430,6 +560,11 @@ export class CaboGame {
   skipPower() {
     const s = this.state;
     if (s.phase !== PHASE.POWER) fail('Gerade ist keine Kartenkraft offen.');
+    this.log(`${this.currentPlayer.name} lässt die Kraft (${s.power.type}) verfallen.`, {
+      type: 'powerSkip',
+      actor: s.current,
+      power: s.power.type,
+    });
     s.power = null;
     this._endTurn();
     this.emit();
@@ -466,6 +601,12 @@ export class CaboGame {
 
     s.peek.taken.push(slot);
     s.knowledge[me][slot] = id;
+    this.log(`${s.players[me].name} sieht sich Platz ${slot + 1} an (${this._tag(id)}).`, {
+      type: 'initialPeek',
+      actor: me,
+      slot,
+      card: id,
+    });
     const remaining = s.rules.initialPeeks - s.peek.taken.length;
     this._reveal({
       cards: [{ owner: me, slot, cardId: id }],
@@ -487,6 +628,13 @@ export class CaboGame {
       if (playerId !== s.current) fail('Peek gilt nur für deine eigenen Karten.');
       s.knowledge[s.current][slot] = card;
       s.power = null;
+      this.log(`${this.currentPlayer.name} sieht per Peek Platz ${slot + 1} (${this._tag(card)}).`, {
+        type: 'powerPeek',
+        actor: s.current,
+        owner: playerId,
+        slot,
+        card,
+      });
       this._reveal({
         cards: [{ owner: playerId, slot, cardId: card }],
         title: 'Deine Karte',
@@ -499,6 +647,12 @@ export class CaboGame {
     if (p.type === POWER.SPY) {
       if (playerId === s.current) fail('Spy gilt nur für fremde Karten.');
       s.power = null;
+      this.log(
+        `${this.currentPlayer.name} spioniert Platz ${slot + 1} von ${
+          s.players[playerId].name
+        } (${this._tag(card)}).`,
+        { type: 'powerSpy', actor: s.current, owner: playerId, slot, card },
+      );
       this._reveal({
         cards: [{ owner: playerId, slot, cardId: card }],
         title: `Karte von ${s.players[playerId].name}`,
@@ -532,11 +686,18 @@ export class CaboGame {
     const s = this.state;
     const ha = s.players[a.owner].hand;
     const hb = s.players[b.owner].hand;
+    const before = [ha[a.slot], hb[b.slot]];
     [ha[a.slot], hb[b.slot]] = [hb[b.slot], ha[a.slot]];
     this._forgetSlot(a.owner, a.slot);
     this._forgetSlot(b.owner, b.slot);
     this.log(
       `${s.players[a.owner].name} tauscht Platz ${a.slot + 1} mit ${s.players[b.owner].name} (Platz ${b.slot + 1}).`,
+      {
+        type: 'powerSwap',
+        actor: s.current,
+        own: { owner: a.owner, slot: a.slot, card: before[0] },
+        target: { owner: b.owner, slot: b.slot, card: before[1] },
+      },
     );
   }
 
@@ -557,7 +718,14 @@ export class CaboGame {
     if (s.cabo && s.cabo.caller !== s.current) s.cabo.turnsRemaining -= 1;
     if (s.cabo && s.cabo.turnsRemaining <= 0) return this._endRound('cabo');
 
+    const done = s.current;
     s.current = (s.current + 1) % s.players.length;
+    this.log(`Zug von ${s.players[done].name} beendet – weiter an ${this.currentPlayer.name}.`, {
+      type: 'turnEnd',
+      actor: done,
+      next: s.current,
+      hands: s.players.map((p) => p.hand.slice()),
+    });
     this._handoff(s.current, 'turn');
   }
 
@@ -639,7 +807,14 @@ export class CaboGame {
       : (s.startPlayer + 1) % s.players.length;
 
     s.phase = PHASE.ROUND_END;
-    this.log(`Runde ${s.round} beendet.`);
+    this.log(`Runde ${s.round} beendet (${reason}).`, {
+      type: 'roundEnd',
+      reason,
+      sums,
+      points,
+      caller,
+      hands: s.players.map((p) => p.hand.slice()),
+    });
   }
 
   /** Startspieler der nächsten Runde: Sieger, bei Patt der mit weniger Gesamtpunkten. */

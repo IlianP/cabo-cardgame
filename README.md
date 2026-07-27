@@ -118,6 +118,32 @@ Im Einrichtungsbildschirm wählbar: Mehrfach-Ablage, Shoot the Moon, „Gewinner
 beginnt“, Strafpunkte 5 oder 10, Zielpunktzahl 50/100/200, Punktlandung, sowie alle
 Sichtschutz-Einstellungen. 2 bis 6 Spieler.
 
+## Debug-Zustand 🐛
+
+Im Spiel liegt oben links ein kleiner Käfer – nur das Emoji, ohne Beschriftung, und er
+verschiebt nichts außer dem Menü-Knopf daneben. Ein Tipp darauf legt den kompletten
+Zustand in die Zwischenablage:
+
+- Runde, Phase (samt offenem Detail wie „gewählte Plätze“ oder „Swap, Schritt target“),
+  Spieler am Zug und wer gerade auf den Bildschirm sehen darf,
+- alle Hände mit Platznummer, Karten-ID, Wert und Summe, dazu welche Plätze der Spieler kennt,
+- Nachziehstapel und komplette Ablage von unten nach oben,
+- die letzten 40 Ereignisse mit laufender Nummer: **wer** hat **welche Karte** **wie**
+  bewegt (`draw`, `swapDrawn`, `multiSelect`, `multiClaim`, `multiResolve`, `powerSwap`, …),
+- die geltenden Regeln und zum Schluss der Rohzustand als JSON, aus dem sich die Lage
+  exakt nachstellen lässt.
+
+Der Verlauf steht im Spielzustand selbst, überlebt also Speichern, Laden und einen
+Neustart der App. Der Käfer liegt über allen Overlays und ist deshalb auch auf dem
+Übergabe- und dem Aufdeck-Bildschirm erreichbar.
+
+Der Text landet direkt in der Zwischenablage und wird **nicht** angezeigt – er enthält
+alle Karten im Klartext, und am Tisch soll niemand mitlesen. Nur wenn das Kopieren
+scheitert (Browser ohne Clipboard-API), erscheint er zum Markieren in einem Dialog.
+
+Der Knopf ist ab Werk an und lässt sich unter **Regeln & Einstellungen → Fehlersuche**
+sowie im Menü der laufenden Partie abschalten.
+
 Der Spielstand wird laufend im Browser gesichert; nach einem versehentlichen Schließen lässt
 sich die Partie fortsetzen.
 
@@ -183,6 +209,7 @@ js/rules.js             Voreinstellungen und Beschreibung aller Regelschalter
 js/engine.js            Spiellogik und Zustandsmaschine – kennt keine Oberfläche
 js/privacy.js           Sichtschutz: Halten zum Ansehen, Timer-Ring
 js/art.js               Zuordnung Kartenwert -> Bilddatei
+js/debug.js             Debug-Zustand als kopierbarer Text
 js/ui.js                Zeichnen des Spieltisches, Eingaben
 js/app.js               Einrichtung, Einstellungen, Speichern, Start
 art/00–13.webp          die Kartenbilder
@@ -191,6 +218,7 @@ tools/art-prompts.json  Modell, Parameter und Prompts der Bildgenerierung
 tools/generate-art.mjs  erzeugt und rechnet die Kartenbilder um
 tools/make-icons.py     erzeugt die App-Icons (nur Standardbibliothek)
 test/engine.test.mjs    Tests der Spiellogik
+test/debug.test.mjs     Tests von Ereignis-Verlauf und Debug-Bericht
 ```
 
 Die Trennung ist bewusst scharf: `engine.js` enthält keine einzige DOM-Zeile, und die
@@ -204,9 +232,10 @@ speichern, laden und in Tests bequem vorbereiten.
 npm test
 ```
 
-30 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
+38 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
 Nachmischen bei leerem Stapel, die Abrechnung inklusive Strafpunkten und Gleichstand,
-Shoot the Moon, Punktlandung, Startspielerwechsel, Spielende und das Speichern ab.
+Shoot the Moon, Punktlandung, Startspielerwechsel, Spielende und das Speichern ab –
+dazu den Ereignis-Verlauf und den Debug-Bericht.
 
 ## Was noch fehlen könnte
 
