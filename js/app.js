@@ -139,7 +139,7 @@ function renderPlayerList() {
                placeholder="Spieler ${i + 1}" maxlength="14" autocomplete="off">
         ${
           rules.usePins
-            ? `<input class="pin-input" type="tel" inputmode="numeric" data-pin="${i}"
+            ? `<input class="pin-input" type="password" inputmode="numeric" autocomplete="off" data-pin="${i}"
                  value="${escapeAttr(seat.pin)}" placeholder="PIN" maxlength="4">`
             : ''
         }
