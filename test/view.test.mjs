@@ -101,12 +101,18 @@ function secretHands(state, audience) {
       if (state.players[audience].hand[Number(slot)] === id) allowed.add(id);
     }
   }
-  // Offen aus der Ablage genommen und eingetauscht: das hat der ganze Tisch
-  // gesehen, daran ändert auch späteres Nachmischen nichts.
+  // Karten, die der ganze Tisch legitim kennt, aus dem Verlauf hergeleitet –
+  // absichtlich nicht aus `state.publicCards`, denn genau diese Buchführung
+  // der Engine soll der Test ja prüfen und nicht nur nachplappern.
   for (const e of state.log) {
-    if (e.type === 'swapDrawn' && e.from === 'discard' && e.round === state.round) {
-      allowed.add(e.cardIn);
+    if (e.round !== state.round) continue;
+    if (e.type === 'swapDrawn') {
+      allowed.delete(e.cardOut); // verlässt die Hand
+      if (e.from === 'discard') allowed.add(e.cardIn); // offen hineingelegt
     }
+    // Misslungene Ansage: die Karten bleiben liegen, gesehen hat sie jeder.
+    if (e.type === 'multiClaim' && !e.hit) for (const id of e.cards) allowed.add(id);
+    if (e.type === 'multiResolve' && e.hit) for (const d of e.dropped) allowed.delete(d.card);
   }
 
   for (const p of state.players) {
@@ -154,7 +160,7 @@ test('Tischsicht kennt den öffentlichen Tisch, aber keine Hand', () => {
   // Plätze sind da, Inhalte nicht.
   assert.deepEqual(
     view.players[0].slots,
-    [0, 1, 2, 3].map(() => ({ filled: true, known: false })),
+    [0, 1, 2, 3].map(() => ({ filled: true, known: false, open: false, cardId: null })),
   );
   assertHandsSecret(view, s);
 });
@@ -635,4 +641,116 @@ test('Sichten sind reines JSON und ändern den Zustand nicht', () => {
   const view = playerView(game.state, 0);
   assert.equal(game.toJSON(), before);
   assert.deepEqual(JSON.parse(JSON.stringify(view)), view);
+});
+
+// ------------------------------------------------- Öffentlich bekannt
+
+test('Aus der Ablage getauschte Karte bleibt für alle sichtbar', () => {
+  const game = newGame(['Anna', 'Bea']);
+  completeInitialPeeks(game);
+  const s = game.state;
+  const actor = s.current;
+
+  game.takeDiscard();
+  const taken = s.drawn;
+  game.swapDrawnWith(2);
+
+  assert.deepEqual(s.publicCards, [taken]);
+  const table = tableView(s);
+  assert.equal(table.players[actor].slots[2].open, true);
+  assert.equal(table.cards[taken].value, s.cards[taken].value);
+  // Die Nachbarplätze bleiben zu.
+  assert.equal(table.players[actor].slots[0].open, false);
+  assertHandsSecret(table, s, 'offen getauschte Karte');
+});
+
+test('Eine misslungene Ansage macht die aufgedeckten Karten öffentlich', () => {
+  const game = newGame(['Anna', 'Bea'], { multiDiscard: true });
+  completeInitialPeeks(game);
+  const s = game.state;
+  const actor = s.current;
+  setHand(game, actor, ['v4-0', 'v5-0', 'v9-0', 'v11-0']);
+
+  game.drawFromDeck();
+  game.startMultiDiscard();
+  game.selectCard(actor, 0);
+  game.selectCard(actor, 1);
+  game.confirmMultiDiscard();
+  assert.equal(s.multi.hit, false);
+  game.ackReveal();
+
+  // Die Karten liegen weiter in der Hand – aber jetzt kennt sie jeder.
+  assert.deepEqual(new Set(s.publicCards), new Set(['v4-0', 'v5-0']));
+  const table = tableView(s);
+  assert.equal(table.players[actor].slots[0].open, true);
+  assert.equal(table.players[actor].slots[2].open, false);
+  assertNoLeak(table, ['v9-0', 'v11-0'], 'nach misslungener Ansage');
+});
+
+test('Was die Hand verlässt, verliert seinen öffentlichen Stand', () => {
+  const game = newGame(['Anna', 'Bea']);
+  completeInitialPeeks(game);
+  const s = game.state;
+
+  game.takeDiscard();
+  const taken = s.drawn;
+  game.swapDrawnWith(1);
+  assert.ok(s.publicCards.includes(taken));
+
+  // Nächste Runde derselben Karte: wieder verdeckt.
+  s.nextStart = 0;
+  game.startRound();
+  assert.deepEqual(s.publicCards, []);
+});
+
+test('Die Buchführung der Engine deckt sich mit dem hergeleiteten Maßstab', () => {
+  const game = newGame(['Anna', 'Bea', 'Cem'], { multiDiscard: true }, 12);
+  completeInitialPeeks(game);
+  const s = game.state;
+
+  let guard = 0;
+  while (s.phase !== PHASE.ROUND_END && guard++ < 300) {
+    // publicCards darf nie eine Karte nennen, die gar nicht in einer Hand liegt.
+    const inHands = new Set(s.players.flatMap((p) => p.hand).filter(Boolean));
+    for (const id of s.publicCards) {
+      assert.ok(inHands.has(id), `${id} steht in publicCards, liegt aber in keiner Hand`);
+    }
+    assertAllViewsSecret(s, `Schritt ${guard}`);
+
+    if (s.phase === PHASE.HANDOFF) game.confirmHandoff();
+    else if (s.phase === PHASE.REVEAL) game.ackReveal();
+    else if (s.phase === PHASE.TURN) {
+      if (guard % 4 === 0 && s.discard.length) game.takeDiscard();
+      else game.drawFromDeck();
+    } else if (s.phase === PHASE.DRAWN) {
+      if (guard % 3 === 0 && s.drawnFrom === 'deck') game.discardDrawn();
+      else game.swapDrawnWith(guard % 4);
+    } else if (s.phase === PHASE.POWER) {
+      const p = s.power;
+      if (p.type === POWER.PEEK) game.selectCard(s.current, 0);
+      else if (p.type === POWER.SPY) game.selectCard((s.current + 1) % 3, 0);
+      else game.selectCard(p.step === 'own' ? s.current : (s.current + 1) % 3, 0);
+    }
+  }
+  assert.ok(guard > 20);
+});
+
+test('Ein Platz nennt seine Karte nur, wenn der Zuschauer sie sehen darf', () => {
+  const game = newGame(['Anna', 'Bea'], { memoryAid: true });
+  completeInitialPeeks(game);
+  const s = game.state;
+
+  for (const audience of [TABLE, 0, 1]) {
+    const view = viewFor(s, audience);
+    for (const seat of view.players) {
+      seat.slots.forEach((slot, i) => {
+        if (slot.cardId == null) return;
+        // Genannt heißt: begründet genannt – und dann auch mit Wert dabei.
+        assert.ok(slot.known || slot.open, `Platz ${i} nennt eine Karte ohne Grund`);
+        assert.ok(view.cards[slot.cardId], `Platz ${i} nennt eine Karte ohne Wert`);
+        assert.equal(slot.cardId, s.players[seat.id].hand[i]);
+      });
+    }
+    assertHandsSecret(view, s, `Platz-IDs (${audience})`);
+  }
 });

@@ -6,11 +6,13 @@
  * Hintergrund nach einer neueren Fassung schauen.
  */
 
-const VERSION = 'cabo-v4';
+const VERSION = 'cabo-v5';
 const ASSETS = [
   './',
   'index.html',
+  'multi.html',
   'css/style.css',
+  'css/multi.css',
   'js/app.js',
   'js/ui.js',
   'js/engine.js',
@@ -19,6 +21,11 @@ const ASSETS = [
   'js/privacy.js',
   'js/art.js',
   'js/debug.js',
+  'js/view.js',
+  'js/host.js',
+  'js/client.js',
+  'js/transport.js',
+  'js/multi.js',
   'manifest.webmanifest',
   'icons/icon-192.png',
   'icons/icon-512.png',

@@ -25,7 +25,7 @@
  * Karte“.
  */
 
-import { PHASE, GameError, viewerOf } from './engine.js';
+import { GameError, viewerOf, legalActions } from './engine.js';
 import { POWER_NAME } from './deck.js';
 
 export const TABLE = 'table';
@@ -62,11 +62,14 @@ function buildView(state, audience) {
   // Die oberste Ablagekarte liegt offen – die darunter interessiert nicht.
   const discardTop = state.discard[state.discard.length - 1] ?? null;
   allow(discardTop);
+  // Karten, die zwar in einer Hand liegen, deren Wert aber der ganze Tisch
+  // kennt – die Engine führt darüber Buch (state.publicCards).
+  for (const id of state.publicCards ?? []) allow(id);
 
   // Alles, was `allow` ruft, wird hier oben ausgewertet – erst danach darf
   // `pickCards` die Sammlung lesen. Als `const` steht diese Reihenfolge
   // fest und hängt nicht daran, wie das Objekt unten sortiert ist.
-  const log = publicLog(state, allow);
+  const log = publicLog(state);
   const reveal = revealFor(state, me, allow);
   const roundResult = roundResultFor(state, allow);
   const turn = turnFor(state, me, allow);
@@ -74,6 +77,10 @@ function buildView(state, audience) {
 
   return {
     audience,
+    // Der Stand, auf den sich diese Sicht bezieht. Ein Gerät schickt ihn bei
+    // jeder Aktion mit, damit der Gastgeber veraltete und doppelte
+    // Nachrichten erkennt, statt sie als Regelverstoß abzulehnen.
+    version: state.version ?? 0,
     round: state.round,
     phase: state.phase,
     rules: { ...state.rules },
@@ -92,6 +99,7 @@ function buildView(state, audience) {
     reveal,
     roundResult,
     gameOver: state.gameOver,
+    publicCards: (state.publicCards ?? []).slice(),
     you,
     log,
     cards: pickCards(state, allowed),
@@ -104,6 +112,7 @@ function buildView(state, audience) {
  */
 function seatFor(state, player, me) {
   const mine = player.id === me;
+  const open = new Set(state.publicCards ?? []);
   return {
     id: player.id,
     name: player.name,
@@ -111,11 +120,21 @@ function seatFor(state, player, me) {
     usedReset: player.usedReset,
     hasPin: Boolean(player.pin),
     mine,
-    slots: player.hand.map((id, slot) => ({
-      filled: id != null,
+    slots: player.hand.map((id, slot) => {
       // Nur für die eigene Hand und nur mit Merkhilfe: „die kennst du schon“.
-      known: Boolean(mine && state.rules.memoryAid && knownAt(state, player, slot)),
-    })),
+      const known = Boolean(mine && state.rules.memoryAid && knownAt(state, player, slot));
+      // „Diese Karte kennt der ganze Tisch“ – gilt für jeden Zuschauer.
+      const isOpen = id != null && open.has(id);
+      return {
+        filled: id != null,
+        known,
+        open: isOpen,
+        // Die ID steht nur dort, wo dieser Zuschauer sie ohnehin sehen darf.
+        // Ohne sie wüsste die Oberfläche zwar „hier liegt etwas Offenes“,
+        // könnte es aber nicht zeichnen.
+        cardId: known || isOpen ? id : null,
+      };
+    }),
   };
 }
 
@@ -229,59 +248,8 @@ function selfFor(state, me, allow) {
     isCurrent: state.current === me,
     isViewer: viewerOf(state) === me,
     knowledge,
-    can: actionsFor(state, me),
+    can: legalActions(state, me),
   };
-}
-
-/**
- * Welche Aktionen dieses Gerät gerade schicken darf. Der Gastgeber prüft
- * ohnehin noch einmal alles – das hier ist nur für die Oberfläche, damit
- * ein Handy nicht Knöpfe zeigt, die zu einer Absage führen.
- */
-function actionsFor(state, me) {
-  const can = [];
-  switch (state.phase) {
-    case PHASE.HANDOFF:
-      if (state.handoff.to === me) can.push('confirmHandoff');
-      break;
-    case PHASE.PEEK:
-      if (state.peek.order[state.peek.index] === me) can.push('selectCard');
-      break;
-    case PHASE.TURN:
-      if (state.current === me) {
-        can.push('drawFromDeck');
-        if (state.discard.length) can.push('takeDiscard');
-        if (!state.cabo) can.push('callCabo');
-      }
-      break;
-    case PHASE.DRAWN:
-      if (state.current === me) {
-        can.push('selectCard');
-        if (state.drawnFrom === 'deck') {
-          can.push('discardDrawn');
-          if (state.rules.multiDiscard) can.push('startMultiDiscard');
-        }
-      }
-      break;
-    case PHASE.MULTI:
-      if (state.current === me) {
-        can.push('selectCard', 'cancelMultiDiscard');
-        if (state.multi.slots.length >= 2) can.push('confirmMultiDiscard');
-      }
-      break;
-    case PHASE.POWER:
-      if (state.current === me) can.push('selectCard', 'skipPower');
-      break;
-    case PHASE.REVEAL:
-      if (state.reveal.isPublic || state.reveal.viewer === me) can.push('ackReveal');
-      break;
-    case PHASE.ROUND_END:
-      can.push('nextRound');
-      break;
-    default:
-      break;
-  }
-  return can;
 }
 
 /** Aus dem vollen Kartenverzeichnis nur die freigegebenen Karten kopieren. */
@@ -305,56 +273,29 @@ function pickCards(state, allowed) {
  * Ereignisart ist einzeln entschieden, was öffentlich ist. Was nicht
  * aufgeführt ist, fällt heraus.
  *
- * Der Wert einer Karte im Text ist harmlos – Werte gehören ohnehin allen,
- * und der Text nennt keine IDs. Die Freigabe der Karten-ID ist es nicht:
- * sie verrät den Wert überall dort weiter, wo die ID an einem Platz hängt.
- * Deshalb wird nur freigegeben, was *jetzt noch* offen liegt (siehe
- * `stillOpen`).
+ * Der Verlauf gibt bewusst *keine* Karten frei. Ein Wert im Text ist
+ * harmlos – „Anna wirft die 7 ab“ ist eine öffentliche Aussage über ein
+ * Ereignis, und der Text nennt nie eine ID. Die ID freizugeben wäre etwas
+ * anderes: sie verrät den Wert überall dort weiter, wo sie an einem Platz
+ * hängt. Welche Karte in einer Hand der ganze Tisch kennen darf, führt die
+ * Engine in `state.publicCards` – das überlebt auch das Nachmischen, bei
+ * dem eine offen abgeworfene Karte wieder im verdeckten Stapel landet.
  */
-export function publicLog(state, allow = () => {}) {
+export function publicLog(state) {
   const name = (id) => state.players[id]?.name ?? `Spieler ${id + 1}`;
   const value = (id) => state.cards[id]?.value;
-  const slotList = (slots) => slots.map((s) => s + 1).join(', ');
-  const open = (id) => {
-    allow(id);
-    return value(id);
-  };
+  const slotList = (slots) => slots.map((x) => x + 1).join(', ');
 
-  const cutoff = openSince(state);
   const out = [];
   for (const e of state.log ?? []) {
-    // Vor der Grenze nur noch den Wert nennen, die ID nicht mehr freigeben.
-    const openHere = stillOpen(e, state, cutoff) ? open : value;
-    const text = publicText(e, { name, slotList, open: openHere });
+    const text = publicText(e, { name, slotList, show: value });
     if (text) out.push({ n: e.n, round: e.round, type: e.type, actor: e.actor ?? null, text });
   }
   return out;
 }
 
-/**
- * Ab welcher Verlaufsnummer eine offengelegte Karte noch als offen gilt.
- *
- * Zwei Ereignisse machen Offengelegtes wieder geheim, und beide sind im
- * Verlauf vermerkt: eine neue Runde (frische Hände) und das Nachmischen –
- * dabei wandert die ganze Ablage bis auf die oberste Karte zurück in den
- * verdeckten Stapel. Eine Karte, die vorher offen auf der Ablage lag, kann
- * danach verdeckt in einer Hand landen; ihre ID darf dann nicht mehr
- * mitgeschickt werden.
- */
-function openSince(state) {
-  let n = -1;
-  for (const e of state.log ?? []) {
-    if (e.type === 'reshuffle' || e.type === 'roundStart') n = e.n;
-  }
-  return n;
-}
-
-function stillOpen(entry, state, cutoff) {
-  return entry.round === state.round && entry.n > cutoff;
-}
-
 function publicText(e, h) {
-  const { name, slotList, open } = h;
+  const { name, slotList, show } = h;
   const who = e.actor != null ? name(e.actor) : '';
 
   switch (e.type) {
@@ -364,15 +305,15 @@ function publicText(e, h) {
       return 'Nachziehstapel war leer – die Ablage wurde neu gemischt.';
     case 'draw':
       return e.from === 'discard'
-        ? `${who} nimmt die ${open(e.card)} aus der Ablage.`
+        ? `${who} nimmt die ${show(e.card)} aus der Ablage.`
         : `${who} zieht vom Stapel.`;
     case 'cabo':
       return `${who} ruft Cabo!`;
     case 'swapDrawn':
       // Die abgelegte Karte landet offen auf der Ablage, die neue nicht.
-      return `${who} tauscht Platz ${e.slot + 1} – die ${open(e.cardOut)} kommt auf die Ablage.`;
+      return `${who} tauscht Platz ${e.slot + 1} – die ${show(e.cardOut)} kommt auf die Ablage.`;
     case 'discardDrawn':
-      return `${who} wirft die ${open(e.card)} ab.`;
+      return `${who} wirft die ${show(e.card)} ab.`;
     case 'multiStart':
       return `${who} beginnt eine Mehrfach-Ablage.`;
     case 'multiCancel':
@@ -383,7 +324,7 @@ function publicText(e, h) {
         : `${who} nimmt Platz ${e.slot + 1} wieder heraus.`;
     case 'multiClaim': {
       // Angesagt wird offen – hier werden die Karten für alle sichtbar.
-      const shown = e.cards.map(open).join(', ');
+      const shown = e.cards.map(show).join(', ');
       return `${who} sagt ${e.slots.length} gleiche an (Plätze ${slotList(e.slots)}): ${shown} – ${
         e.hit ? 'passt' : 'daneben'
       }.`;
@@ -393,7 +334,7 @@ function publicText(e, h) {
         ? `${who} legt ${e.dropped.length} Karten ab; die gezogene Karte kommt auf Platz ${
             e.targetSlot + 1
           }.`
-        : `${who} sagt daneben, die ${open(e.drawn)} kommt auf die Ablage – Zug verloren.`;
+        : `${who} sagt daneben, die ${show(e.drawn)} kommt auf die Ablage – Zug verloren.`;
     case 'powerSkip':
       return `${who} lässt die Kraft (${POWER_NAME[e.power] ?? e.power}) verfallen.`;
     case 'initialPeek':
