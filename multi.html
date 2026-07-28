@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cabo – Mehrgeräte</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/multi.css">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0d3b2e">
+</head>
+<body>
+
+<!-- Rollenwahl ------------------------------------------------------- -->
+<section id="screen-role" class="screen">
+  <div class="setup">
+    <h1 class="title">Cabo <span class="title-sub">Mehrgeräte</span></h1>
+
+    <p class="muted lead">
+      Ein Gerät liegt als <b>Tisch</b> in der Mitte und zeigt Stapel, Ablage und Punkte.
+      Jeder öffnet zusätzlich auf dem eigenen Handy eine <b>Hand</b> – dort und nur dort
+      erscheinen die eigenen Karten.
+    </p>
+
+    <div class="card-box">
+      <h2>Raum</h2>
+      <label class="field">
+        <span>Name des Raums</span>
+        <input id="room" type="text" value="tisch" maxlength="20" autocomplete="off">
+      </label>
+      <p class="muted small">
+        Alle Geräte brauchen denselben Raumnamen. Diese Fassung verbindet Fenster
+        <b>auf demselben Gerät</b> (BroadcastChannel) – zum Ausprobieren, noch nicht
+        über echte Geräte hinweg.
+      </p>
+    </div>
+
+    <div class="card-box">
+      <h2>Diese Rolle</h2>
+      <div class="role-buttons">
+        <button class="btn btn--primary btn--big" id="btn-be-table" type="button">
+          Tisch eröffnen
+        </button>
+        <button class="btn btn--big" id="btn-be-hand" type="button">Als Hand beitreten</button>
+      </div>
+    </div>
+
+    <div class="card-box" id="host-setup">
+      <h2>Mitspieler <span class="muted small">(nur beim Tisch)</span></h2>
+      <div id="player-list" class="player-list"></div>
+      <div class="row">
+        <button class="btn" id="btn-remove-player" type="button">− Spieler</button>
+        <button class="btn" id="btn-add-player" type="button">+ Spieler</button>
+      </div>
+    </div>
+
+    <p class="muted small">
+      <a href="index.html">Zurück zum Ein-Gerät-Modus</a>
+    </p>
+  </div>
+</section>
+
+<!-- Platzwahl -------------------------------------------------------- -->
+<section id="screen-seat" class="screen hidden">
+  <div class="setup">
+    <h1 class="title">Wer bist du?</h1>
+    <p class="muted lead">Tippe auf deinen Platz. Ein Platz gehört immer nur einem Gerät.</p>
+    <div id="seat-list" class="seat-list"></div>
+    <p class="muted small" id="seat-hint"></p>
+  </div>
+</section>
+
+<!-- Tisch ------------------------------------------------------------ -->
+<section id="screen-table" class="screen hidden">
+  <header id="hud">
+    <div class="hud-round" id="t-round"></div>
+    <div class="hud-scores" id="t-scores"></div>
+  </header>
+  <main class="table">
+    <div class="opponents" id="t-seats"></div>
+    <div class="center">
+      <div class="pile">
+        <span class="pile-card card card--down"></span>
+        <span class="pile-label">Nachziehen <b id="t-deck"></b></span>
+      </div>
+      <div class="pile">
+        <span class="pile-card" id="t-discard"></span>
+        <span class="pile-label">Ablage</span>
+      </div>
+    </div>
+    <p class="prompt" id="t-prompt"></p>
+    <div class="buttons" id="t-buttons"></div>
+    <div class="log" id="t-log"></div>
+  </main>
+</section>
+
+<!-- Hand ------------------------------------------------------------- -->
+<section id="screen-hand" class="screen hidden">
+  <header id="hud">
+    <div class="hud-round" id="h-who"></div>
+    <div class="hud-scores" id="h-state"></div>
+  </header>
+  <main class="hand-main">
+    <div class="hand-table" id="h-table"></div>
+    <div class="hand-own">
+      <h2 class="hand-title">Deine Hand</h2>
+      <div class="hand-cards" id="h-cards"></div>
+    </div>
+    <p class="prompt" id="h-prompt"></p>
+    <div class="buttons" id="h-buttons"></div>
+  </main>
+</section>
+
+<div id="h-reveal" class="overlay overlay--reveal hidden">
+  <div class="reveal-box">
+    <h2 class="reveal-title" id="h-reveal-title"></h2>
+    <p class="reveal-note" id="h-reveal-note"></p>
+    <div class="reveal-cards" id="h-reveal-cards"></div>
+    <p class="reveal-hint" id="h-reveal-hint"></p>
+    <button class="btn btn--primary btn--big" id="h-reveal-ok" type="button">Weiter</button>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script type="module" src="js/multi.js"></script>
+</body>
+</html>

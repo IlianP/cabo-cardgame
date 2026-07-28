@@ -208,6 +208,11 @@ js/deck.js              Kartendeck, Werte, Kartenkräfte, Mischen
 js/rules.js             Voreinstellungen und Beschreibung aller Regelschalter
 js/engine.js            Spiellogik und Zustandsmaschine – kennt keine Oberfläche
 js/privacy.js           Sichtschutz: Halten zum Ansehen, Timer-Ring
+js/view.js              Sichten: was ein einzelnes Gerät erfahren darf
+js/host.js              Gastgeber: prüft Züge, verteilt Sichten
+js/client.js            Gerät: hält seine Sicht, schickt Absichten
+js/transport.js         wie Nachrichten reisen (Speicher, BroadcastChannel)
+js/multi.js             Oberfläche für Tisch und Hand
 js/art.js               Zuordnung Kartenwert -> Bilddatei
 js/debug.js             Debug-Zustand als kopierbarer Text
 js/ui.js                Zeichnen des Spieltisches, Eingaben
@@ -219,6 +224,9 @@ tools/generate-art.mjs  erzeugt und rechnet die Kartenbilder um
 tools/make-icons.py     erzeugt die App-Icons (nur Standardbibliothek)
 test/engine.test.mjs    Tests der Spiellogik
 test/debug.test.mjs     Tests von Ereignis-Verlauf und Debug-Bericht
+test/view.test.mjs      Tests der Sichten-Filterung
+test/host.test.mjs      Tests des Mehrgeräte-Modus
+multi.html              Einstieg in den Mehrgeräte-Modus
 ```
 
 Die Trennung ist bewusst scharf: `engine.js` enthält keine einzige DOM-Zeile, und die
@@ -232,13 +240,87 @@ speichern, laden und in Tests bequem vorbereiten.
 npm test
 ```
 
-38 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
+85 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
 Nachmischen bei leerem Stapel, die Abrechnung inklusive Strafpunkten und Gleichstand,
 Shoot the Moon, Punktlandung, Startspielerwechsel, Spielende und das Speichern ab –
-dazu den Ereignis-Verlauf und den Debug-Bericht.
+dazu den Ereignis-Verlauf, den Debug-Bericht, die Sichten-Filterung und den
+Mehrgeräte-Modus (Beitreten, Wiederverbinden, doppelte und veraltete Nachrichten).
+
+## Mehrgeräte-Modus
+
+Statt das Tablet herumzureichen, liegt es fest in der Mitte und zeigt den **Tisch**:
+Nachziehstapel, Ablage, wer am Zug ist, Punktestand. Jeder öffnet zusätzlich auf dem eigenen
+Handy eine **Hand** – dort und nur dort erscheinen die eigenen Karten. Beide Modi bestehen
+nebeneinander; der Ein-Gerät-Modus bleibt unverändert.
+
+Zu finden über den Knopf „Mehrgeräte-Modus“ im Einrichtungsbildschirm oder direkt unter
+`multi.html`.
+
+### Wie es aufgebaut ist
+
+```
+   Handy (Hand)  ─┐
+   Handy (Hand)  ─┼─ Transport ─→ Gastgeber ─→ Engine
+   Tablet (Tisch) ┘                   │
+                                      └─ pro Gerät eine eigene Sicht zurück
+```
+
+Ein Gerät hält die Partie. Alle anderen schicken **Absichten** („ich möchte ziehen“), nie
+fertige Zustände, und bekommen eine beschnittene Sicht zurück. Vier Schichten, jede mit
+genau einer Aufgabe:
+
+| Datei | Aufgabe |
+|---|---|
+| `js/engine.js` | die Regeln – kennt weder Oberfläche noch Netz |
+| `js/view.js` | was ein einzelnes Gerät erfahren darf |
+| `js/host.js` | nimmt Züge an, prüft sie, verteilt die Sichten |
+| `js/client.js` | hält die eigene Sicht, schickt Absichten |
+| `js/transport.js` | wie Nachrichten reisen – austauschbar |
+
+### Was daran wichtig ist
+
+**Sichtschutz ist keine Frage der Bedienung mehr.** Ein Handy *kann* fremde Karten nicht
+anzeigen, weil es sie nie bekommen hat. Karten-IDs verraten schon in der ID ihren Wert
+(`v7-1` ist immer eine 7), es reicht also nicht, Werte wegzulassen – die Sicht sammelt pro
+Gerät, welche Karten es sehen darf, und nur die gehen über die Leitung. PINs verlassen den
+Gastgeber nie, weitergegeben wird nur `hasPin`.
+
+**Der Gastgeber glaubt keinem Gerät.** Dass ein Handy nur erlaubte Knöpfe zeigt, ist
+Bequemlichkeit; entschieden wird jede Nachricht noch einmal gegen `legalActions`. Ein Gerät,
+das einen fremden Platz als Argument mitschickt, bekommt eine Absage.
+
+**Doppelte Nachrichten sind der Normalfall, kein Fehler.** Jede Aktion trägt die Version des
+Zustands, auf den sie sich bezieht. Passt sie nicht mehr, wird sie *geschluckt* und das Gerät
+bekommt den aktuellen Stand – ohne Meldung. Zweimal getippt, unterwegs verdoppelt, zu spät
+angekommen: über eine wackelige Verbindung passiert das ständig, und ein
+Regelverstoß-Hinweis wäre dort schlicht gelogen. Deshalb dürfen bei einer öffentlichen
+Aufdeckung auch **alle** auf „weiter“ tippen, statt dass einer suchen muss, wer dran ist.
+
+**Wiederverbinden verliert nichts.** Ein Platz gehört immer genau einem Gerät; meldet sich
+ein neues für denselben Platz, übernimmt es und bekommt den vollen Stand. Tab neu geladen,
+Handy gesperrt, Akku leer und am Ersatzgerät weiter – die Partie läuft unbeeindruckt weiter.
+
+**Der Tisch spielt nicht mit.** Er hat keine Hand und kann nicht ziehen. Gemeinsame Schritte
+darf er auslösen – „weiter“ nach einer *öffentlichen* Aufdeckung und die nächste Runde –,
+eine private Aufdeckung dagegen nicht: die sieht er gar nicht, und wegtippen würde jemandem
+den Blick nehmen. Auch der Tisch zeichnet übrigens aus einer beschnittenen Sicht und greift
+nie in den Spielzustand.
+
+### Was noch fehlt
+
+Der Transport reicht heute **nur über Fenster auf demselben Gerät** (`BroadcastChannel`) –
+zum Ausprobieren und zur Entwicklung. Für echte Geräte fehlt der WebRTC-Adapter mit dem
+Tablet als Gastgeber (Variante B aus Issue #1). Er passt hinter dieselbe Schnittstelle wie
+die vorhandenen Transporte; an Engine, Sichten, Gastgeber und Geräten ändert er keine Zeile.
+Reconnect nach Bildschirmsperre und ICE im fremden WLAN lassen sich erst am echten Tisch
+beurteilen.
+
+Die Mehrgeräte-Oberfläche ist bewusst schlicht: Sie zeigt, dass die Aufteilung trägt, und
+ersetzt noch nicht die ausgearbeitete Oberfläche des Ein-Gerät-Modus.
 
 ## Was noch fehlen könnte
 
-- **Mehrgeräte-Modus**: Tablet als Tisch, jedes Handy als eigene Hand – siehe Issue #1.
+- **Mehrgeräte-Modus über echte Geräte**: WebRTC-Adapter – siehe Issue #1.
+- **Einwerfen (Snap)**: eigene Spielregel, im Mehrgeräte-Modus besonders reizvoll.
 - **Computergegner** für Partien zu zweit.
 - **Statistik** über mehrere Abende.

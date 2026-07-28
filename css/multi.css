@@ -1,0 +1,198 @@
+/**
+ * Mehrgeräte-Modus – ergänzt style.css.
+ *
+ * Zwei Bildschirme mit unterschiedlichem Auftrag: Der Tisch liegt fest in
+ * der Mitte und wird aus etwas Entfernung gelesen, die Hand liegt vor
+ * einer einzelnen Person. Entsprechend groß bzw. kompakt ist alles.
+ */
+
+.lead {
+  max-width: 46ch;
+  line-height: 1.5;
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.field {
+  display: block;
+  margin-bottom: 0.6rem;
+}
+
+.field span {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.field input {
+  width: 100%;
+}
+
+.role-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.role-buttons .btn {
+  flex: 1 1 12rem;
+}
+
+.seat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.seat-choice[data-taken] {
+  opacity: 0.55;
+}
+
+/* ------------------------------------------------------------- Tisch */
+
+#screen-table .table {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+#screen-table .opponents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+}
+
+#screen-table .seat {
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px solid transparent;
+}
+
+#screen-table .seat--current {
+  border-color: var(--accent, #e8c060);
+}
+
+.seat-head {
+  margin-bottom: 0.4rem;
+  font-size: 1.05rem;
+}
+
+.seat-missing {
+  margin-left: 0.4rem;
+  font-size: 0.75rem;
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.seat-cards {
+  display: flex;
+  gap: 0.35rem;
+}
+
+/* Eine Karte, die der ganze Tisch kennt – bewusst deutlich markiert, damit
+   niemand rätselt, warum sie offen liegt. */
+.card--open {
+  outline: 2px solid rgba(232, 192, 96, 0.8);
+  outline-offset: 2px;
+}
+
+.log {
+  margin-top: auto;
+  max-height: 9rem;
+  overflow-y: auto;
+  font-size: 0.85rem;
+  opacity: 0.75;
+  line-height: 1.5;
+}
+
+.log-line {
+  padding: 0.1rem 0;
+}
+
+/* -------------------------------------------------------------- Hand */
+
+.hand-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.hand-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.mini-seat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.6rem;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.95rem;
+}
+
+.mini-seat--current {
+  background: rgba(232, 192, 96, 0.16);
+}
+
+.mini-cards {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.pip {
+  width: 0.7rem;
+  height: 1rem;
+  border-radius: 0.15rem;
+  background: rgba(255, 255, 255, 0.35);
+  display: inline-block;
+}
+
+.pip--open {
+  background: rgba(232, 192, 96, 0.9);
+}
+
+.pip--gone {
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+}
+
+.hand-title {
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+  margin: 0 0 0.5rem;
+}
+
+.hand-cards {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.hand-cards .drawn {
+  margin-left: auto;
+}
+
+@media (min-width: 700px) {
+  .hand-cards .card {
+    width: 5.5rem;
+    height: 8rem;
+  }
+}

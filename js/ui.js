@@ -7,7 +7,7 @@
  * Phase `reveal`.
  */
 
-import { PHASE } from './engine.js';
+import { PHASE, legalActions, canSelectCard, viewerOf } from './engine.js';
 import { POWER, POWER_NAME, MAX_VALUE } from './deck.js';
 import { artFor, CARD_BACK } from './art.js';
 import { attachReveal, makeTimerRing } from './privacy.js';
@@ -128,27 +128,13 @@ function cardMarkup(card, { faceUp, extra = '', classes = [], slotNo = null }) {
 
 // --------------------------------------------------------------- Auswahl
 
+/**
+ * Anfassbar? Die Antwort gibt die Engine – dort stehen dieselben
+ * Bedingungen ohnehin schon als Wächter in `selectCard`. Gefragt wird für
+ * den Spieler, der das Gerät gerade hält.
+ */
 function isSelectable(s, owner, slot) {
-  if (s.players[owner].hand[slot] == null) return false;
-  switch (s.phase) {
-    case PHASE.PEEK: {
-      const me = s.peek.order[s.peek.index];
-      return owner === me && !s.peek.taken.includes(slot);
-    }
-    case PHASE.DRAWN:
-    case PHASE.MULTI:
-      return owner === s.current;
-    case PHASE.POWER: {
-      const p = s.power;
-      if (p.type === POWER.PEEK) return owner === s.current;
-      if (p.type === POWER.SPY) return owner !== s.current;
-      if (p.step === 'own') return owner === s.current;
-      if (p.step === 'target') return owner !== s.current;
-      return false;
-    }
-    default:
-      return false;
-  }
+  return canSelectCard(s, viewerOf(s), owner, slot);
 }
 
 function isChosen(s, owner, slot) {
@@ -307,6 +293,8 @@ function attachCardReveal(node, card, ringHost) {
 function describe() {
   const s = game.state;
   const name = s.players[s.current]?.name ?? '';
+  // Was gerade geht, entscheidet die Engine – nicht die Oberfläche.
+  const allowed = legalActions(s, viewerOf(s));
 
   switch (s.phase) {
     case PHASE.PEEK: {
@@ -324,12 +312,16 @@ function describe() {
           : `<b>${esc(name)}</b> ist am Zug.`,
         buttons: [
           { label: 'Karte ziehen', kind: 'primary', run: () => game.drawFromDeck() },
-          { label: 'Ablage nehmen', run: () => game.takeDiscard(), disabled: !s.discard.length },
+          {
+            label: 'Ablage nehmen',
+            run: () => game.takeDiscard(),
+            disabled: !allowed.includes('takeDiscard'),
+          },
           {
             label: 'Cabo rufen',
             kind: 'danger',
             run: () => confirmCabo(),
-            disabled: Boolean(s.cabo),
+            disabled: !allowed.includes('callCabo'),
           },
         ],
       };
@@ -338,7 +330,7 @@ function describe() {
         return { prompt: 'Tippe auf die Karte, die du dafür abgibst.', buttons: [] };
       }
       const buttons = [];
-      if (game.rules.multiDiscard) {
+      if (allowed.includes('startMultiDiscard')) {
         buttons.push({ label: 'Mehrere gleiche ablegen', run: () => game.startMultiDiscard() });
       }
       buttons.push({ label: 'Abwerfen', run: () => game.discardDrawn() });
@@ -359,7 +351,7 @@ function describe() {
             label: 'Ansagen und aufdecken',
             kind: 'primary',
             run: () => game.confirmMultiDiscard(),
-            disabled: n < 2,
+            disabled: !allowed.includes('confirmMultiDiscard'),
           },
           { label: 'Abbrechen', run: () => game.cancelMultiDiscard() },
         ],

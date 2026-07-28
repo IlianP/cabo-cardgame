@@ -36,6 +36,27 @@ export const PHASE = {
 
 export class GameError extends Error {}
 
+/**
+ * Wer gerade schauen darf – im Ein-Gerät-Modus also der Spieler, der das
+ * Tablet in der Hand hält. Steht hier als eigene Funktion, damit auch
+ * Aufrufer ohne CaboGame-Instanz (etwa die Sichten-Filterung) dieselbe
+ * Antwort bekommen wie der Getter `game.viewer`.
+ */
+export function viewerOf(state) {
+  switch (state.phase) {
+    case PHASE.HANDOFF:
+    case PHASE.ROUND_END:
+    case PHASE.GAME_END:
+      return null;
+    case PHASE.PEEK:
+      return state.peek.order[state.peek.index];
+    case PHASE.REVEAL:
+      return state.reveal.viewer;
+    default:
+      return state.current;
+  }
+}
+
 const fail = (msg) => {
   throw new GameError(msg);
 };
@@ -79,6 +100,8 @@ export class CaboGame {
         cabo: null,
         roundResult: null,
         gameOver: false,
+        publicCards: [],
+        version: 0,
         log: [],
         logSeq: 0,
       };
@@ -93,7 +116,16 @@ export class CaboGame {
     return () => this.listeners.delete(fn);
   }
 
+  /**
+   * Meldet eine Zustandsänderung – und zählt dabei die Version hoch.
+   *
+   * Die Version ist die einzige Stelle, an der ein Gastgeber erkennen kann,
+   * ob eine Nachricht von einem Gerät noch zum aktuellen Zustand passt.
+   * Über eine wackelige Verbindung kommt irgendwann eine Nachricht doppelt
+   * oder zu spät an; das ist dort der Normalfall, nicht die Ausnahme.
+   */
   emit() {
+    this.state.version = (this.state.version ?? 0) + 1;
     for (const fn of this.listeners) fn(this.state);
   }
 
@@ -111,19 +143,7 @@ export class CaboGame {
 
   /** Der Spieler, der das Gerät gerade in der Hand hält (oder null). */
   get viewer() {
-    const s = this.state;
-    switch (s.phase) {
-      case PHASE.HANDOFF:
-      case PHASE.ROUND_END:
-      case PHASE.GAME_END:
-        return null;
-      case PHASE.PEEK:
-        return s.peek.order[s.peek.index];
-      case PHASE.REVEAL:
-        return s.reveal.viewer;
-      default:
-        return s.current;
-    }
+    return viewerOf(this.state);
   }
 
   toJSON() {
@@ -134,6 +154,9 @@ export class CaboGame {
     const game = new CaboGame({});
     game.state = typeof json === 'string' ? JSON.parse(json) : json;
     game.rng = rng;
+    // Spielstände von vor dem Mehrgeräte-Umbau kennen diese Felder nicht.
+    game.state.publicCards ??= [];
+    game.state.version ??= 0;
     return game;
   }
 
@@ -186,6 +209,7 @@ export class CaboGame {
 
     s.knowledge = {};
     for (const p of s.players) s.knowledge[p.id] = {};
+    s.publicCards = [];
 
     s.cabo = null;
     s.drawn = null;
@@ -364,6 +388,10 @@ export class CaboGame {
     this._forgetSlot(s.current, slot);
     s.knowledge[s.current][slot] = s.drawn;
 
+    this._unmarkPublic(outgoing);
+    // Aus der Ablage genommen heißt: der ganze Tisch hat sie gesehen.
+    if (s.drawnFrom === 'discard') this._markPublic(s.drawn);
+
     this.log(
       `${this.currentPlayer.name} tauscht Platz ${slot + 1}: ${this._tag(outgoing)} raus, ${this._tag(
         s.drawn,
@@ -516,6 +544,7 @@ export class CaboGame {
       const sorted = [...slots].sort((a, b) => a - b);
       const dropped = sorted.map((slot) => ({ slot, card: player.hand[slot] }));
       for (const slot of sorted) {
+        this._unmarkPublic(player.hand[slot]);
         s.discard.push(player.hand[slot]);
         player.hand[slot] = null;
         this._forgetSlot(s.current, slot);
@@ -539,6 +568,8 @@ export class CaboGame {
         },
       );
     } else {
+      // Daneben: die Karten bleiben liegen – aber gesehen hat sie jetzt jeder.
+      for (const slot of slots) this._markPublic(player.hand[slot]);
       s.discard.push(s.drawn);
       this.log(`${player.name} sagt daneben und verliert den Zug.`, {
         type: 'multiResolve',
@@ -706,6 +737,33 @@ export class CaboGame {
     delete this.state.knowledge[owner][slot];
   }
 
+  // ------------------------------------------------------ Offenes Wissen
+
+  /**
+   * `publicCards` sind die Karten, die gerade in einer Hand liegen und
+   * deren Wert trotzdem der ganze Tisch kennt: offen aus der Ablage
+   * genommen oder bei einer misslungenen Ansage für alle aufgedeckt.
+   *
+   * Warum das im Zustand steht und nicht aus dem Verlauf hergeleitet wird:
+   * Beim Nachmischen wandert die Ablage zurück in den verdeckten Stapel,
+   * eine früher offen abgeworfene Karte ist danach wieder geheim. Aus dem
+   * Verlauf ist beides nicht sauber zu trennen – hier schon, weil der
+   * Eintrag genau dann entsteht, wenn die Karte offen in eine Hand geht,
+   * und genau dann verschwindet, wenn sie die Hand wieder verlässt.
+   *
+   * Beim blinden Tausch (Swap) bleibt der Eintrag absichtlich stehen: die
+   * Karte wechselt den Platz, aber gesehen hat sie trotzdem jeder.
+   */
+  _markPublic(id) {
+    const list = this.state.publicCards;
+    if (id != null && !list.includes(id)) list.push(id);
+  }
+
+  _unmarkPublic(id) {
+    const at = this.state.publicCards.indexOf(id);
+    if (at >= 0) this.state.publicCards.splice(at, 1);
+  }
+
   // ------------------------------------------------------------ Zugwechsel
 
   _endTurn() {
@@ -837,10 +895,113 @@ export class CaboGame {
     this.startRound();
   }
 
+  // ------------------------------------------------------ Was gerade geht
+
+  legalActions(playerId) {
+    return legalActions(this.state, playerId);
+  }
+
+  canSelectCard(playerId, owner, slot) {
+    return canSelectCard(this.state, playerId, owner, slot);
+  }
+
   /** Endstand, sortiert – niedrigste Punktzahl gewinnt. */
   standings() {
     return this.state.players
       .map((p) => ({ id: p.id, name: p.name, score: p.score }))
       .sort((a, b) => a.score - b.score);
   }
+}
+
+// ------------------------------------------------------ Was gerade geht
+
+/**
+ * Welche Züge dieser Spieler gerade machen darf.
+ *
+ * Dieselben Bedingungen standen vorher dreimal im Haus: als `fail(...)`
+ * hier, als ausgegraute Knöpfe in der Oberfläche und als Freigabe für die
+ * Handys. Drei Fassungen derselben Regel driften auseinander, sobald sich
+ * eine Regel ändert – deshalb steht die Antwort jetzt nur noch hier, und
+ * beide Oberflächen fragen.
+ *
+ * Absichtlich großzügig bei `ackReveal` und `nextRound`: Eine öffentliche
+ * Aufdeckung haben alle gesehen, da soll nicht einer suchen müssen, wer
+ * jetzt tippen darf. Dass dabei zwei gleichzeitig tippen, ist kein
+ * Fehlerfall – der Gastgeber schluckt die zweite Nachricht (siehe
+ * `host.js`), statt sie mit einer Regelverstoß-Meldung abzulehnen.
+ */
+export function legalActions(state, playerId) {
+const s = state;
+const can = [];
+const mine = playerId === s.current;
+
+switch (s.phase) {
+  case PHASE.HANDOFF:
+    if (s.handoff.to === playerId) can.push('confirmHandoff');
+    break;
+  case PHASE.PEEK:
+    if (s.peek.order[s.peek.index] === playerId) can.push('selectCard');
+    break;
+  case PHASE.TURN:
+    if (mine) {
+      can.push('drawFromDeck');
+      if (s.discard.length) can.push('takeDiscard');
+      if (!s.cabo) can.push('callCabo');
+    }
+    break;
+  case PHASE.DRAWN:
+    if (mine) {
+      can.push('selectCard');
+      if (s.drawnFrom === 'deck') {
+        can.push('discardDrawn');
+        if (s.rules.multiDiscard) can.push('startMultiDiscard');
+      }
+    }
+    break;
+  case PHASE.MULTI:
+    if (mine) {
+      can.push('selectCard', 'cancelMultiDiscard');
+      if (s.multi.slots.length >= 2) can.push('confirmMultiDiscard');
+    }
+    break;
+  case PHASE.POWER:
+    if (mine) can.push('selectCard', 'skipPower');
+    break;
+  case PHASE.REVEAL:
+    if (s.reveal.isPublic || s.reveal.viewer === playerId) can.push('ackReveal');
+    break;
+  case PHASE.ROUND_END:
+    can.push('nextRound');
+    break;
+  default:
+    break;
+}
+return can;
+}
+
+/**
+ * Darf dieser Spieler gerade auf diese Karte tippen? Beantwortet dieselbe
+ * Frage wie die Wächter in `selectCard`, nur ohne zu werfen – damit die
+ * Oberfläche vorher weiß, was anfassbar ist.
+ */
+export function canSelectCard(state, playerId, owner, slot) {
+const s = state;
+if (!legalActions(state, playerId).includes('selectCard')) return false;
+if (s.players[owner]?.hand[slot] == null) return false;
+
+switch (s.phase) {
+  case PHASE.PEEK:
+    return owner === playerId && !s.peek.taken.includes(slot);
+  case PHASE.DRAWN:
+  case PHASE.MULTI:
+    return owner === playerId;
+  case PHASE.POWER: {
+    const p = s.power;
+    if (p.type === POWER.PEEK) return owner === playerId;
+    if (p.type === POWER.SPY) return owner !== playerId;
+    return p.step === 'own' ? owner === playerId : owner !== playerId;
+  }
+  default:
+    return false;
+}
 }
