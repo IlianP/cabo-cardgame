@@ -234,7 +234,7 @@ speichern, laden und in Tests bequem vorbereiten.
 npm test
 ```
 
-56 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
+62 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
 Nachmischen bei leerem Stapel, die Abrechnung inklusive Strafpunkten und Gleichstand,
 Shoot the Moon, Punktlandung, Startspielerwechsel, Spielende und das Speichern ab –
 dazu den Ereignis-Verlauf, den Debug-Bericht und die Sichten-Filterung.
@@ -262,13 +262,20 @@ geheim ist – statt es später zu verstecken:
 - **Der Verlauf wird neu geschrieben**, nicht gesäubert: Der Engine-Verlauf notiert Karten
   im Klartext, die öffentliche Fassung entsteht aus den Ereignisdaten, Ereignisart für
   Ereignisart. Unbekannte Ereignisarten fallen heraus statt durchzurutschen.
+- **Offengelegt bleibt nicht ewig offen.** Beim Nachmischen wandert die Ablage zurück in den
+  verdeckten Stapel, und eine vorher offen abgeworfene Karte kann danach verdeckt in einer
+  Hand liegen. Ab dem Nachmischen (und ab jeder neuen Runde) nennt der Verlauf deshalb nur
+  noch den Wert und gibt die Karten-ID nicht mehr frei.
 - **Aufdeckungen folgen dem Feld `viewer`**: private nur an ihr Gerät, öffentliche
   (Mehrfach-Ablage, Rundenende) an alle.
 - **Ohne Merkhilfe bleibt auch die eigene Hand verdeckt** – das Vergessen der eigenen Karten
   ist der Kern von Cabo und soll nicht am Handy scheitern.
 
-Die Tests prüfen das nicht feldweise, sondern suchen in der fertigen Sicht nach Karten-IDs
-und verlangen für jede gefundene eine Berechtigung – egal, in welchem Feld sie steckt.
+Die Tests prüfen das nicht feldweise, sondern über eine Umkehrung: Sie leiten aus dem
+Zustand her, welche Karten gerade verdeckt in einer Hand liegen und für den jeweiligen
+Zuschauer tabu sind, und suchen dann in der fertigen Sicht nach genau diesen IDs – egal, in
+welchem Feld sie stecken. Dieser Maßstab ist unabhängig von `view.js` formuliert, sonst
+prüfte der Test nur sich selbst.
 
 Was noch fehlt: der Transport zwischen den Geräten (WebRTC mit dem Tablet als Gastgeber),
 die Zuordnung Gerät → Spieler, Wiederverbinden nach Bildschirmsperre und die Rückfallebene

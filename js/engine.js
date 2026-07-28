@@ -36,6 +36,27 @@ export const PHASE = {
 
 export class GameError extends Error {}
 
+/**
+ * Wer gerade schauen darf – im Ein-Gerät-Modus also der Spieler, der das
+ * Tablet in der Hand hält. Steht hier als eigene Funktion, damit auch
+ * Aufrufer ohne CaboGame-Instanz (etwa die Sichten-Filterung) dieselbe
+ * Antwort bekommen wie der Getter `game.viewer`.
+ */
+export function viewerOf(state) {
+  switch (state.phase) {
+    case PHASE.HANDOFF:
+    case PHASE.ROUND_END:
+    case PHASE.GAME_END:
+      return null;
+    case PHASE.PEEK:
+      return state.peek.order[state.peek.index];
+    case PHASE.REVEAL:
+      return state.reveal.viewer;
+    default:
+      return state.current;
+  }
+}
+
 const fail = (msg) => {
   throw new GameError(msg);
 };
@@ -111,19 +132,7 @@ export class CaboGame {
 
   /** Der Spieler, der das Gerät gerade in der Hand hält (oder null). */
   get viewer() {
-    const s = this.state;
-    switch (s.phase) {
-      case PHASE.HANDOFF:
-      case PHASE.ROUND_END:
-      case PHASE.GAME_END:
-        return null;
-      case PHASE.PEEK:
-        return s.peek.order[s.peek.index];
-      case PHASE.REVEAL:
-        return s.reveal.viewer;
-      default:
-        return s.current;
-    }
+    return viewerOf(this.state);
   }
 
   toJSON() {

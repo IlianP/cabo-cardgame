@@ -25,7 +25,7 @@
  * Karte“.
  */
 
-import { PHASE } from './engine.js';
+import { PHASE, GameError, viewerOf } from './engine.js';
 import { POWER_NAME } from './deck.js';
 
 export const TABLE = 'table';
@@ -38,7 +38,9 @@ export function tableView(state) {
 /** Die Sicht eines einzelnen Spielers auf dem eigenen Handy. */
 export function playerView(state, playerId) {
   if (!state.players.some((p) => p.id === playerId)) {
-    throw new Error(`Diesen Spieler gibt es nicht: ${playerId}`);
+    // GameError wie in der Engine: ein Gastgeber soll „Handy hat Unsinn
+    // geschickt“ von einem eigenen Fehler unterscheiden können.
+    throw new GameError(`Diesen Spieler gibt es nicht: ${playerId}`);
   }
   return buildView(state, playerId);
 }
@@ -61,9 +63,13 @@ function buildView(state, audience) {
   const discardTop = state.discard[state.discard.length - 1] ?? null;
   allow(discardTop);
 
+  // Alles, was `allow` ruft, wird hier oben ausgewertet – erst danach darf
+  // `pickCards` die Sammlung lesen. Als `const` steht diese Reihenfolge
+  // fest und hängt nicht daran, wie das Objekt unten sortiert ist.
   const log = publicLog(state, allow);
   const reveal = revealFor(state, me, allow);
   const roundResult = roundResultFor(state, allow);
+  const turn = turnFor(state, me, allow);
   const you = me == null ? null : selfFor(state, me, allow);
 
   return {
@@ -80,7 +86,7 @@ function buildView(state, audience) {
     cabo: state.cabo ? { ...state.cabo } : null,
     handoff: state.handoff ? { ...state.handoff } : null,
     peek: peekFor(state),
-    turn: turnFor(state, me, allow),
+    turn,
     multi: state.multi ? { slots: state.multi.slots.slice(), hit: state.multi.hit ?? null } : null,
     power: powerFor(state),
     reveal,
@@ -98,7 +104,6 @@ function buildView(state, audience) {
  */
 function seatFor(state, player, me) {
   const mine = player.id === me;
-  const known = mine ? state.knowledge[player.id] ?? {} : {};
   return {
     id: player.id,
     name: player.name,
@@ -109,9 +114,21 @@ function seatFor(state, player, me) {
     slots: player.hand.map((id, slot) => ({
       filled: id != null,
       // Nur für die eigene Hand und nur mit Merkhilfe: „die kennst du schon“.
-      known: Boolean(mine && state.rules.memoryAid && known[slot] != null),
+      known: Boolean(mine && state.rules.memoryAid && knownAt(state, player, slot)),
     })),
   };
+}
+
+/**
+ * Wissen über einen Platz, sofern es noch gilt: Sobald dort eine andere
+ * Karte liegt, ist der alte Eintrag wertlos. Die Markierung am Platz und
+ * die mitgeschickten Kartenwerte müssen sich hier einig sein, sonst
+ * behauptet ein Handy „die kennst du“ über eine Karte, die es gar nicht
+ * bekommen hat.
+ */
+function knownAt(state, player, slot) {
+  const id = state.knowledge[player.id]?.[slot];
+  return id != null && player.hand[slot] === id ? id : null;
 }
 
 /** Anfangsphase: wer sich gerade Karten ansieht und wie viele noch fehlen. */
@@ -132,8 +149,10 @@ function peekFor(state) {
  * am Zug ist.
  */
 function turnFor(state, me, allow) {
-  if (state.drawn == null) return { drawn: null, drawnFrom: state.drawnFrom ?? null, mine: false };
+  // `mine` beantwortet „bin ich am Zug“ und gilt auch, bevor gezogen wurde –
+  // sonst blendet ein Handy genau die Knöpfe aus, die es zeigen müsste.
   const mine = me != null && me === state.current;
+  if (state.drawn == null) return { drawn: null, drawnFrom: state.drawnFrom ?? null, mine };
   const open = state.drawnFrom === 'discard'; // lag offen, alle haben sie gesehen
   if (mine || open) allow(state.drawn);
   return {
@@ -197,11 +216,12 @@ function selfFor(state, me, allow) {
   const player = state.players[me];
   const knowledge = {};
   if (state.rules.memoryAid) {
-    for (const [slot, id] of Object.entries(state.knowledge[me] ?? {})) {
-      if (player.hand[Number(slot)] !== id) continue; // veraltet: Platz hat gewechselt
+    player.hand.forEach((_, slot) => {
+      const id = knownAt(state, player, slot);
+      if (id == null) return;
       knowledge[slot] = id;
       allow(id);
-    }
+    });
   }
   return {
     id: me,
@@ -211,22 +231,6 @@ function selfFor(state, me, allow) {
     knowledge,
     can: actionsFor(state, me),
   };
-}
-
-/** Wer das Gerät im Ein-Gerät-Modus halten würde – hier: wer dran ist. */
-function viewerOf(state) {
-  switch (state.phase) {
-    case PHASE.HANDOFF:
-    case PHASE.ROUND_END:
-    case PHASE.GAME_END:
-      return null;
-    case PHASE.PEEK:
-      return state.peek.order[state.peek.index];
-    case PHASE.REVEAL:
-      return state.reveal.viewer;
-    default:
-      return state.current;
-  }
 }
 
 /**
@@ -300,6 +304,12 @@ function pickCards(state, allowed) {
  * säubern, wird er hier aus den Ereignisdaten neu geschrieben: pro
  * Ereignisart ist einzeln entschieden, was öffentlich ist. Was nicht
  * aufgeführt ist, fällt heraus.
+ *
+ * Der Wert einer Karte im Text ist harmlos – Werte gehören ohnehin allen,
+ * und der Text nennt keine IDs. Die Freigabe der Karten-ID ist es nicht:
+ * sie verrät den Wert überall dort weiter, wo die ID an einem Platz hängt.
+ * Deshalb wird nur freigegeben, was *jetzt noch* offen liegt (siehe
+ * `stillOpen`).
  */
 export function publicLog(state, allow = () => {}) {
   const name = (id) => state.players[id]?.name ?? `Spieler ${id + 1}`;
@@ -310,15 +320,37 @@ export function publicLog(state, allow = () => {}) {
     return value(id);
   };
 
+  const cutoff = openSince(state);
   const out = [];
   for (const e of state.log ?? []) {
-    // Karten-IDs bleiben stabil, der Verlauf überlebt die Runde: nur was in
-    // dieser Runde offengelegt wurde, darf auch jetzt noch mitgeschickt werden.
-    const openHere = e.round === state.round ? open : value;
-    const text = publicText(e, { name, value, slotList, open: openHere });
+    // Vor der Grenze nur noch den Wert nennen, die ID nicht mehr freigeben.
+    const openHere = stillOpen(e, state, cutoff) ? open : value;
+    const text = publicText(e, { name, slotList, open: openHere });
     if (text) out.push({ n: e.n, round: e.round, type: e.type, actor: e.actor ?? null, text });
   }
   return out;
+}
+
+/**
+ * Ab welcher Verlaufsnummer eine offengelegte Karte noch als offen gilt.
+ *
+ * Zwei Ereignisse machen Offengelegtes wieder geheim, und beide sind im
+ * Verlauf vermerkt: eine neue Runde (frische Hände) und das Nachmischen –
+ * dabei wandert die ganze Ablage bis auf die oberste Karte zurück in den
+ * verdeckten Stapel. Eine Karte, die vorher offen auf der Ablage lag, kann
+ * danach verdeckt in einer Hand landen; ihre ID darf dann nicht mehr
+ * mitgeschickt werden.
+ */
+function openSince(state) {
+  let n = -1;
+  for (const e of state.log ?? []) {
+    if (e.type === 'reshuffle' || e.type === 'roundStart') n = e.n;
+  }
+  return n;
+}
+
+function stillOpen(entry, state, cutoff) {
+  return entry.round === state.round && entry.n > cutoff;
 }
 
 function publicText(e, h) {
@@ -349,11 +381,13 @@ function publicText(e, h) {
       return e.picked
         ? `${who} wählt Platz ${e.slot + 1} für die Mehrfach-Ablage.`
         : `${who} nimmt Platz ${e.slot + 1} wieder heraus.`;
-    case 'multiClaim':
+    case 'multiClaim': {
       // Angesagt wird offen – hier werden die Karten für alle sichtbar.
-      return `${who} sagt ${e.slots.length} gleiche an (Plätze ${slotList(e.slots)}): ${
-        e.hit ? `${e.cards.map(open).join(', ')} – passt` : `${e.cards.map(open).join(', ')} – daneben`
+      const shown = e.cards.map(open).join(', ');
+      return `${who} sagt ${e.slots.length} gleiche an (Plätze ${slotList(e.slots)}): ${shown} – ${
+        e.hit ? 'passt' : 'daneben'
       }.`;
+    }
     case 'multiResolve':
       return e.hit
         ? `${who} legt ${e.dropped.length} Karten ab; die gezogene Karte kommt auf Platz ${

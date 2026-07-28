@@ -1,16 +1,24 @@
 /**
  * Tests der Sichten-Filterung: node --test test/*.test.mjs
  *
- * Der Kern dieser Datei ist `assertNoLeak`: In der fertigen Sicht wird nach
- * Karten-IDs gesucht (sie sehen aus wie `v7-1` und verraten schon in der ID
- * ihren Wert). Jede gefundene ID muss der Zuschauer sehen dürfen – egal, in
- * welchem Feld sie steckt.
+ * Geprüft wird nicht Feld für Feld, sondern über eine Umkehrung: In der
+ * fertigen Sicht wird nach Karten-IDs gesucht (sie sehen aus wie `v7-1` und
+ * verraten schon in der ID ihren Wert), und jede gefundene muss der
+ * Zuschauer sehen dürfen – egal, in welchem Feld sie steckt.
+ *
+ * Der Maßstab dafür ist `secretHands`: eine zweite, aus dem Zustand
+ * hergeleitete Antwort auf die Frage „welche Karten liegen gerade verdeckt
+ * in einer Hand, die dieser Zuschauer nicht kennen darf?“. Sie ist bewusst
+ * unabhängig von view.js formuliert, sonst prüfte der Test nur sich selbst.
+ * `assertHandsSecret` steht deshalb in jedem Test, nicht nur in den
+ * offensichtlichen.
  */
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
-import { CaboGame, PHASE } from '../js/engine.js';
+import { CaboGame, PHASE, GameError } from '../js/engine.js';
 import { mulberry32, POWER } from '../js/deck.js';
 import { tableView, playerView, viewFor, publicLog, TABLE } from '../js/view.js';
 
@@ -39,28 +47,93 @@ function completeInitialPeeks(game) {
   }
 }
 
+/** Nimmt eine Karte aus Stapel oder Ablage – damit sie nicht doppelt existiert. */
+function lift(state, id) {
+  for (const pile of [state.deck, state.discard]) {
+    const at = pile.indexOf(id);
+    if (at >= 0) return pile.splice(at, 1)[0];
+  }
+  for (const p of state.players) {
+    const at = p.hand.indexOf(id);
+    if (at >= 0) {
+      p.hand[at] = null;
+      return id;
+    }
+  }
+  throw new Error(`Karte ${id} liegt nirgends`);
+}
+
+/** Setzt eine Hand; die verdrängten Karten wandern zurück in den Stapel. */
+function setHand(game, playerId, ids) {
+  const s = game.state;
+  for (const id of ids) lift(s, id);
+  for (const old of s.players[playerId].hand) if (old != null) s.deck.unshift(old);
+  s.players[playerId].hand = ids.slice();
+  s.knowledge[playerId] = {};
+}
+
+/** Legt eine bestimmte Karte oben auf den Nachziehstapel. */
+function stackDeck(game, id) {
+  lift(game.state, id);
+  game.state.deck.push(id);
+}
+
 /** Alle Karten-IDs, die irgendwo in der Sicht auftauchen. */
 function idsIn(view) {
   return new Set(JSON.stringify(view).match(/v\d+-\d+/g) ?? []);
 }
 
 /**
- * Prüft, dass keine der verbotenen Karten in der Sicht steht.
- * @param {Set<string>|string[]} forbidden
+ * Welche Handkarten dieser Zuschauer *nicht* kennen darf – unabhängig von
+ * view.js aus dem Zustand hergeleitet.
  */
-function assertNoLeak(view, forbidden, msg) {
-  const found = [...idsIn(view)].filter((id) => [...forbidden].includes(id));
+function secretHands(state, audience) {
+  const secret = new Set();
+  if (state.roundResult) return secret; // Rundenende: alles liegt offen
+
+  const allowed = new Set();
+  const r = state.reveal;
+  if (r && (r.isPublic || (audience !== TABLE && r.viewer === audience))) {
+    for (const c of r.cards) allowed.add(c.cardId);
+  }
+  if (audience !== TABLE && state.rules.memoryAid) {
+    for (const [slot, id] of Object.entries(state.knowledge[audience] ?? {})) {
+      if (state.players[audience].hand[Number(slot)] === id) allowed.add(id);
+    }
+  }
+  // Offen aus der Ablage genommen und eingetauscht: das hat der ganze Tisch
+  // gesehen, daran ändert auch späteres Nachmischen nichts.
+  for (const e of state.log) {
+    if (e.type === 'swapDrawn' && e.from === 'discard' && e.round === state.round) {
+      allowed.add(e.cardIn);
+    }
+  }
+
+  for (const p of state.players) {
+    for (const id of p.hand) if (id != null && !allowed.has(id)) secret.add(id);
+  }
+  return secret;
+}
+
+/** Die Kernzusicherung: keine verdeckte Handkarte steht in der Sicht. */
+function assertHandsSecret(view, state, msg = 'Sicht') {
+  const secret = secretHands(state, view.audience);
+  const found = [...idsIn(view)].filter((id) => secret.has(id));
   assert.deepEqual(found, [], `${msg}: ${found.join(', ')} durchgesickert`);
 }
 
-/** Die Handkarten aller Spieler außer den genannten. */
-function handsExcept(state, ...keep) {
-  const out = new Set();
+/** Beide Sichten auf einmal prüfen. */
+function assertAllViewsSecret(state, msg) {
+  assertHandsSecret(tableView(state), state, `${msg} (Tisch)`);
   for (const p of state.players) {
-    if (keep.includes(p.id)) continue;
-    for (const id of p.hand) if (id != null) out.add(id);
+    assertHandsSecret(playerView(state, p.id), state, `${msg} (${p.name})`);
   }
-  return out;
+}
+
+/** Gezielte Prüfung, wenn eine ganz bestimmte Karte draußen bleiben muss. */
+function assertNoLeak(view, forbidden, msg) {
+  const found = [...idsIn(view)].filter((id) => [...forbidden].includes(id));
+  assert.deepEqual(found, [], `${msg}: ${found.join(', ')} durchgesickert`);
 }
 
 // ------------------------------------------------------------ Grundgerüst
@@ -83,7 +156,7 @@ test('Tischsicht kennt den öffentlichen Tisch, aber keine Hand', () => {
     view.players[0].slots,
     [0, 1, 2, 3].map(() => ({ filled: true, known: false })),
   );
-  assertNoLeak(view, handsExcept(s), 'Tischsicht');
+  assertHandsSecret(view, s);
 });
 
 test('Tischsicht gibt keine PIN weiter', () => {
@@ -103,7 +176,7 @@ test('Spielersicht verrät fremde Hände nicht', () => {
     const view = playerView(s, p.id);
     assert.equal(view.you.id, p.id);
     assert.equal(view.players[p.id].mine, true);
-    assertNoLeak(view, handsExcept(s, p.id), `Sicht von ${p.name}`);
+    assertHandsSecret(view, s, `Sicht von ${p.name}`);
   }
 });
 
@@ -116,6 +189,7 @@ test('Ohne Merkhilfe bleibt auch die eigene Hand verdeckt', () => {
   assert.deepEqual(view.you.knowledge, {});
   assert.equal(view.players[0].slots.some((slot) => slot.known), false);
   assertNoLeak(view, new Set(s.players[0].hand), 'eigene Hand ohne Merkhilfe');
+  assertHandsSecret(view, s);
 });
 
 test('Mit Merkhilfe kommen genau die selbst gesehenen Karten mit', () => {
@@ -132,10 +206,10 @@ test('Mit Merkhilfe kommen genau die selbst gesehenen Karten mit', () => {
   // Die restlichen eigenen Karten bleiben trotzdem draußen.
   const unseen = s.players[0].hand.filter((id) => !seen.includes(id));
   assertNoLeak(view, new Set(unseen), 'ungesehene eigene Karten');
-  assertNoLeak(view, handsExcept(s, 0), 'fremde Hand mit Merkhilfe');
+  assertAllViewsSecret(s, 'Merkhilfe');
 });
 
-test('Veraltetes Wissen fällt aus der Sicht heraus', () => {
+test('Veraltetes Wissen fällt aus Markierung und Werten heraus', () => {
   const game = newGame(['Anna', 'Bea'], { memoryAid: true });
   completeInitialPeeks(game);
   const s = game.state;
@@ -146,7 +220,25 @@ test('Veraltetes Wissen fällt aus der Sicht heraus', () => {
   const view = playerView(s, 0);
 
   assert.equal(view.you.knowledge['0'], undefined);
+  // Markierung und Werte müssen sich einig sein: keine Marke ohne Karte.
+  assert.equal(view.players[0].slots[0].known, false);
   assertNoLeak(view, [stale], 'veraltetes Wissen');
+});
+
+test('Jede Marke am Platz hat auch einen Wert dabei', () => {
+  const game = newGame(['Anna', 'Bea'], { memoryAid: true });
+  completeInitialPeeks(game);
+  const s = game.state;
+
+  for (const p of s.players) {
+    const view = playerView(s, p.id);
+    view.players[p.id].slots.forEach((slot, i) => {
+      if (!slot.known) return;
+      const id = view.you.knowledge[i];
+      assert.ok(id != null, `Platz ${i} ist markiert, aber ohne Karte`);
+      assert.ok(view.cards[id], `Platz ${i} nennt eine Karte, die nicht mitkommt`);
+    });
+  }
 });
 
 // -------------------------------------------------------------------- Zug
@@ -168,6 +260,23 @@ test('Die gezogene Karte sieht nur, wer am Zug ist', () => {
     assert.equal(other.turn.drawnFrom, 'deck');
     assertNoLeak(other, [s.drawn], 'gezogene Karte');
   }
+  assertAllViewsSecret(s, 'nach dem Ziehen');
+});
+
+test('turn.mine gilt auch, bevor gezogen wurde', () => {
+  const game = newGame();
+  completeInitialPeeks(game);
+  const s = game.state;
+  const actor = s.current;
+
+  const mine = playerView(s, actor);
+  assert.equal(mine.turn.drawn, null);
+  assert.equal(mine.turn.mine, true, 'wer am Zug ist, muss das auch im Zug-Feld sehen');
+  assert.equal(mine.you.isCurrent, true);
+
+  const other = playerView(s, (actor + 1) % 3);
+  assert.equal(other.turn.mine, false);
+  assert.equal(tableView(s).turn.mine, false);
 });
 
 test('Eine Karte aus der Ablage ist für alle offen', () => {
@@ -179,6 +288,7 @@ test('Eine Karte aus der Ablage ist für alle offen', () => {
   const view = tableView(s);
   assert.equal(view.turn.drawn, s.drawn);
   assert.equal(view.cards[s.drawn].value, s.cards[s.drawn].value);
+  assertHandsSecret(view, s);
 });
 
 test('Erlaubte Aktionen hängen an Phase und Spieler', () => {
@@ -232,6 +342,7 @@ test('Private Aufdeckung geht nur an ihren Zuschauer', () => {
   assert.equal(other.reveal.forMe, false);
   assert.deepEqual(other.you.can, []);
   assertNoLeak(other, [shown], 'private Aufdeckung beim Mitspieler');
+  assertAllViewsSecret(s, 'Anfangsphase');
 });
 
 test('Spy zeigt die fremde Karte nur dem Spion', () => {
@@ -241,7 +352,7 @@ test('Spy zeigt die fremde Karte nur dem Spion', () => {
   const actor = s.current;
   const victim = (actor + 1) % 3;
 
-  s.deck.push('v9-0'); // Spy
+  stackDeck(game, 'v9-0'); // Spy
   game.drawFromDeck();
   game.discardDrawn();
   assert.equal(s.power.type, POWER.SPY);
@@ -251,6 +362,8 @@ test('Spy zeigt die fremde Karte nur dem Spion', () => {
   assert.equal(playerView(s, actor).reveal.cards[0].cardId, spied);
   assertNoLeak(tableView(s), [spied], 'Spy am Tisch');
   assertNoLeak(playerView(s, victim), [spied], 'Spy beim Ausspionierten');
+  assertHandsSecret(tableView(s), s, 'Spy');
+  assertHandsSecret(playerView(s, victim), s, 'Spy');
 });
 
 test('Öffentliche Aufdeckung der Mehrfach-Ablage geht an alle', () => {
@@ -258,7 +371,7 @@ test('Öffentliche Aufdeckung der Mehrfach-Ablage geht an alle', () => {
   completeInitialPeeks(game);
   const s = game.state;
   const actor = s.current;
-  s.players[actor].hand = ['v4-0', 'v4-1', 'v9-0', 'v11-0'];
+  setHand(game, actor, ['v4-0', 'v4-1', 'v9-0', 'v11-0']);
 
   game.drawFromDeck();
   game.startMultiDiscard();
@@ -275,6 +388,7 @@ test('Öffentliche Aufdeckung der Mehrfach-Ablage geht an alle', () => {
   assert.equal(table.cards['v4-0'].value, 4);
   // Die übrigen Karten der Hand bleiben verdeckt.
   assertNoLeak(table, ['v9-0', 'v11-0'], 'Mehrfach-Ablage');
+  assertAllViewsSecret(s, 'Mehrfach-Ablage');
 });
 
 test('Am Rundenende liegen alle Hände offen', () => {
@@ -322,7 +436,7 @@ test('Der öffentliche Verlauf schreibt keine geheimen Werte mit', () => {
   // Weder die frisch eingetauschte Karte noch die Startkarten stehen drin.
   assert.equal(texts.some((t) => /v\d+-\d+/.test(t)), false);
   assertNoLeak(view, [drawn], 'Verlauf nach Tausch');
-  assertNoLeak(view, handsExcept(s), 'Verlauf');
+  assertAllViewsSecret(s, 'Verlauf');
 });
 
 test('Verlauf aus früheren Runden gibt keine Karten der laufenden Runde frei', () => {
@@ -339,33 +453,169 @@ test('Verlauf aus früheren Runden gibt keine Karten der laufenden Runde frei', 
   assertNoLeak(tableView(s), ['v3-0'], 'alter Verlauf');
 });
 
-test('publicLog kennt alle Ereignisarten der Engine', () => {
-  const game = newGame(['Anna', 'Bea'], { multiDiscard: true, shootTheMoon: false });
+test('Nach dem Nachmischen ist eine abgelegte Karte wieder geheim', () => {
+  const game = newGame(['Anna', 'Bea'], { multiDiscard: false });
   completeInitialPeeks(game);
   const s = game.state;
 
-  // Ein paar Züge, die möglichst viele Ereignisarten auslösen.
+  // Eine Karte ohne Kraft offen abwerfen – ab hier ist sie öffentlich.
+  stackDeck(game, 'v0-0');
+  game.drawFromDeck();
+  game.discardDrawn();
+  assert.ok(s.discard.includes('v0-0'));
+  assert.ok(tableView(s).cards['v0-0'], 'auf der Ablage muss sie sichtbar sein');
+
+  // Stapel leerräumen und nachmischen lassen: die Ablage wandert zurück.
+  if (s.phase === PHASE.HANDOFF) game.confirmHandoff();
+  s.deck = [];
+  game.drawFromDeck();
+  assert.ok(
+    s.log.some((e) => e.type === 'reshuffle'),
+    'für diesen Test muss nachgemischt worden sein',
+  );
+
+  // Die Karte landet verdeckt in einer Hand – niemand darf sie mehr sehen.
+  s.drawn = null;
+  s.drawnFrom = null;
+  s.phase = PHASE.TURN;
+  lift(s, 'v0-0');
+  s.players[1].hand[0] = 'v0-0';
+
+  assertNoLeak(tableView(s), ['v0-0'], 'nachgemischte Karte am Tisch');
+  assertNoLeak(playerView(s, 0), ['v0-0'], 'nachgemischte Karte beim Mitspieler');
+  assertAllViewsSecret(s, 'nach dem Nachmischen');
+});
+
+// Die Ereignisarten stehen hier fest aufgeschrieben, nicht aus einer
+// Beispielpartie eingesammelt: sonst prüft der Test nur, was diese eine
+// Partie zufällig auslöst, und ein vergessener Fall fällt nicht auf.
+const ENGINE_EVENTS = [
+  'roundStart',
+  'reshuffle',
+  'draw',
+  'cabo',
+  'swapDrawn',
+  'discardDrawn',
+  'multiStart',
+  'multiCancel',
+  'multiSelect',
+  'multiClaim',
+  'multiResolve',
+  'powerSkip',
+  'initialPeek',
+  'powerPeek',
+  'powerSpy',
+  'powerSwap',
+  'turnEnd',
+  'roundEnd',
+];
+
+/** Ein Beispiel-Ereignis je Art, mit allen Feldern, die der Text braucht. */
+const SAMPLE_EVENT = {
+  roundStart: { startPlayer: 1, hands: [['v1-0'], ['v2-0']] },
+  reshuffle: { actor: 0, deckLeft: 12 },
+  draw: { actor: 0, from: 'deck', card: 'v5-0' },
+  cabo: { actor: 1, turnsRemaining: 1 },
+  swapDrawn: { actor: 0, from: 'deck', slot: 2, cardIn: 'v5-0', cardOut: 'v6-0' },
+  discardDrawn: { actor: 0, card: 'v7-0', power: 'peek' },
+  multiStart: { actor: 1, drawn: 'v5-0' },
+  multiCancel: { actor: 1, slots: [0, 1] },
+  multiSelect: { actor: 1, slot: 0, picked: true },
+  multiClaim: { actor: 0, slots: [0, 1], cards: ['v4-0', 'v4-1'], values: [4, 4], hit: true },
+  multiResolve: {
+    actor: 0,
+    hit: true,
+    dropped: [{ slot: 0, card: 'v4-0' }],
+    targetSlot: 0,
+    drawn: 'v5-0',
+  },
+  powerSkip: { actor: 0, power: 'peek' },
+  initialPeek: { actor: 1, slot: 3, card: 'v8-0' },
+  powerPeek: { actor: 0, owner: 0, slot: 1, card: 'v8-0' },
+  powerSpy: { actor: 0, owner: 1, slot: 2, card: 'v9-0' },
+  powerSwap: {
+    actor: 0,
+    own: { owner: 0, slot: 0, card: 'v1-0' },
+    target: { owner: 1, slot: 1, card: 'v2-0' },
+  },
+  turnEnd: { actor: 0, next: 1 },
+  roundEnd: { reason: 'cabo', sums: [4, 9], points: [0, 9], caller: 0 },
+};
+
+test('ENGINE_EVENTS deckt genau das ab, was die Engine schreibt', () => {
+  const source = readFileSync(new URL('../js/engine.js', import.meta.url), 'utf8');
+  const inSource = new Set([...source.matchAll(/type: '([a-zA-Z]+)'/g)].map((m) => m[1]));
+  assert.deepEqual([...inSource].sort(), [...ENGINE_EVENTS].sort());
+});
+
+test('publicLog schreibt für jede Ereignisart einen Text', () => {
+  const game = newGame(['Anna', 'Bea']);
+  const s = game.state;
+  s.log = ENGINE_EVENTS.map((type, i) => ({
+    n: i + 1,
+    round: s.round,
+    phase: s.phase,
+    type,
+    ...SAMPLE_EVENT[type],
+  }));
+
+  const written = publicLog(s);
+  assert.deepEqual(
+    ENGINE_EVENTS.filter((type) => !written.some((e) => e.type === type)),
+    [],
+    'Ereignisart ohne Text',
+  );
+  for (const entry of written) {
+    assert.equal(/undefined|NaN/.test(entry.text), false, `${entry.type}: „${entry.text}“`);
+    assert.equal(/v\d+-\d+/.test(entry.text), false, `${entry.type} nennt eine Karten-ID`);
+  }
+});
+
+test('Auch multiCancel und powerSkip landen im öffentlichen Verlauf', () => {
+  const game = newGame(['Anna', 'Bea'], { multiDiscard: true });
+  completeInitialPeeks(game);
+  const s = game.state;
   const actor = s.current;
-  s.players[actor].hand = ['v4-0', 'v4-1', 'v2-0', 'v5-0'];
+
+  stackDeck(game, 'v7-0'); // Peek
   game.drawFromDeck();
   game.startMultiDiscard();
   game.selectCard(actor, 0);
-  game.selectCard(actor, 1);
-  game.selectCard(actor, 1);
-  game.selectCard(actor, 1);
-  game.confirmMultiDiscard();
-  game.ackReveal();
-  if (s.phase === PHASE.HANDOFF) game.confirmHandoff();
-  s.deck.push('v11-0'); // Swap
-  game.drawFromDeck();
+  game.cancelMultiDiscard();
   game.discardDrawn();
-  game.selectCard(s.current, 0);
-  game.selectCard((s.current + 1) % 2, 0);
+  game.skipPower();
 
-  const seen = new Set(s.log.map((e) => e.type));
-  const written = new Set(publicLog(s).map((e) => e.type));
-  assert.deepEqual([...seen].filter((t) => !written.has(t)), [], 'Ereignisart ohne Text');
-  assertNoLeak(tableView(s), handsExcept(s), 'Verlauf über mehrere Züge');
+  const texts = publicLog(s).map((e) => e.text);
+  assert.ok(texts.some((t) => /bricht die Mehrfach-Ablage ab/.test(t)));
+  assert.ok(texts.some((t) => /lässt die Kraft \(Peek\) verfallen/.test(t)));
+  assertAllViewsSecret(s, 'nach Abbruch und Verfall');
+});
+
+test('Ein ganzer Zugdurchlauf hält alle Hände dicht', () => {
+  const game = newGame(['Anna', 'Bea', 'Cem'], { multiDiscard: true }, 3);
+  completeInitialPeeks(game);
+  const s = game.state;
+
+  let guard = 0;
+  while (s.phase !== PHASE.ROUND_END && guard++ < 300) {
+    assertAllViewsSecret(s, `Zug ${guard}`);
+    if (s.phase === PHASE.HANDOFF) game.confirmHandoff();
+    else if (s.phase === PHASE.REVEAL) game.ackReveal();
+    else if (s.phase === PHASE.TURN) {
+      if (guard % 7 === 0 && s.discard.length) game.takeDiscard();
+      else game.drawFromDeck();
+    } else if (s.phase === PHASE.DRAWN) {
+      if (guard % 3 === 0 && s.drawnFrom === 'deck') game.discardDrawn();
+      else game.swapDrawnWith(guard % 4);
+    } else if (s.phase === PHASE.POWER) {
+      const p = s.power;
+      if (p.type === POWER.PEEK) game.selectCard(s.current, 0);
+      else if (p.type === POWER.SPY) game.selectCard((s.current + 1) % 3, 0);
+      else if (p.step === 'own') game.selectCard(s.current, 0);
+      else game.selectCard((s.current + 1) % 3, 1);
+    } else throw new Error(`unerwartete Phase: ${s.phase}`);
+  }
+  assert.ok(guard > 20, 'die Partie sollte über etliche Züge laufen');
 });
 
 // ------------------------------------------------------------------ Rest
@@ -375,7 +625,7 @@ test('viewFor wählt zwischen Tisch und Spieler', () => {
   const s = game.state;
   assert.equal(viewFor(s, TABLE).audience, TABLE);
   assert.equal(viewFor(s, 1).audience, 1);
-  assert.throws(() => playerView(s, 9), /Diesen Spieler gibt es nicht/);
+  assert.throws(() => playerView(s, 9), GameError);
 });
 
 test('Sichten sind reines JSON und ändern den Zustand nicht', () => {
