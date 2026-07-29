@@ -212,6 +212,7 @@ js/view.js              Sichten: was ein einzelnes Gerät erfahren darf
 js/host.js              Gastgeber: prüft Züge, verteilt Sichten
 js/client.js            Gerät: hält seine Sicht, schickt Absichten
 js/transport.js         wie Nachrichten reisen (Speicher, BroadcastChannel)
+js/webrtc.js            direkte Verbindung zwischen zwei Geräten
 js/multi.js             Oberfläche für Tisch und Hand
 js/art.js               Zuordnung Kartenwert -> Bilddatei
 js/debug.js             Debug-Zustand als kopierbarer Text
@@ -222,10 +223,12 @@ sw.js                   Service Worker für den Offline-Betrieb
 tools/art-prompts.json  Modell, Parameter und Prompts der Bildgenerierung
 tools/generate-art.mjs  erzeugt und rechnet die Kartenbilder um
 tools/make-icons.py     erzeugt die App-Icons (nur Standardbibliothek)
+tools/rtc-check.mjs     echter WebRTC-Handschlag zwischen zwei Browser-Seiten
 test/engine.test.mjs    Tests der Spiellogik
 test/debug.test.mjs     Tests von Ereignis-Verlauf und Debug-Bericht
 test/view.test.mjs      Tests der Sichten-Filterung
 test/host.test.mjs      Tests des Mehrgeräte-Modus
+test/webrtc.test.mjs    Tests des WebRTC-Transports (ohne Browser)
 multi.html              Einstieg in den Mehrgeräte-Modus
 ```
 
@@ -240,11 +243,21 @@ speichern, laden und in Tests bequem vorbereiten.
 npm test
 ```
 
-89 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
+104 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
 Nachmischen bei leerem Stapel, die Abrechnung inklusive Strafpunkten und Gleichstand,
 Shoot the Moon, Punktlandung, Startspielerwechsel, Spielende und das Speichern ab –
 dazu den Ereignis-Verlauf, den Debug-Bericht, die Sichten-Filterung und den
-Mehrgeräte-Modus (Beitreten, Wiederverbinden, doppelte und veraltete Nachrichten).
+Mehrgeräte-Modus (Beitreten, Wiederverbinden, doppelte und veraltete Nachrichten) und den
+WebRTC-Transport.
+
+`RTCPeerConnection` gibt es in Node nicht – der echte Handschlag zwischen zwei Browsern
+läuft deshalb als eigenes Werkzeug, das einen Browser braucht und darum nicht in `npm test`
+hängt:
+
+```bash
+npx playwright@latest install chromium   # einmalig
+node tools/rtc-check.mjs
+```
 
 ## Mehrgeräte-Modus – Stand der Dinge
 
@@ -310,23 +323,35 @@ eine private Aufdeckung dagegen nicht: die sieht er gar nicht, und wegtippen wü
 den Blick nehmen. Auch der Tisch zeichnet übrigens aus einer beschnittenen Sicht und greift
 nie in den Spielzustand.
 
-### Was noch fehlt: die Verbindung zwischen Geräten
+### Verbindung zwischen echten Geräten
 
-`BroadcastChannel` trägt nur zwischen Fenstern desselben Browsers auf demselben Gerät.
-Dasselbe WLAN genügt nicht, und kein Raumname ändert daran etwas – die Browser haben schlicht
-keine Möglichkeit, sich im Netz gegenseitig zu finden.
+`js/webrtc.js` verbindet zwei Browser direkt miteinander – ohne Vermittler, ohne Internet,
+auch im reinen WLAN. Nachgewiesen mit `node tools/rtc-check.mjs`: zwei getrennte
+Browser-Kontexte, echte `RTCPeerConnection`, eine Runde Cabo darüber.
 
-Nötig ist einer dieser Wege, alle hinter derselben Transport-Schnittstelle:
+Was dabei **noch fehlt, ist der Handschlag**. Bevor eine Verbindung steht, müssen beide
+Seiten einmal eine Beschreibung austauschen:
+
+```
+   Tisch  ──── Angebot ────>  Handy
+   Tisch  <──── Antwort ────  Handy
+```
+
+Danach braucht es den Weg nie wieder. Nur diese zwei Nachrichten müssen hinüber, und dafür
+gibt es drei Wege – alle hinter derselben Schnittstelle:
 
 | Weg | Was er kostet |
 |---|---|
-| **WebRTC + kleiner Signalisierungs-Dienst** | Einmal einen winzigen Dienst betreiben. Danach läuft die Partie direkt zwischen den Geräten – der Dienst wird nur für den Handschlag gebraucht und darf danach schlafen. GitHub Pages und die PWA-Installation bleiben. |
-| **Server im eigenen WLAN** | Ein Rechner im Haus liefert Seite und Verbindung. Nichts verlässt das Netz, aber der Rechner muss laufen, jeder tippt eine IP-Adresse ein, und die Installation von GitHub Pages fällt für diesen Modus weg. |
-| **QR-Code-Handschlag** | Ganz ohne Dienst: Tisch zeigt einen Code, Handy scannt und zeigt einen zurück. Pro Handy zwei Scans und eine Kamera. |
+| **QR-Code** | Ganz ohne Dienst: Tisch zeigt einen Code, Handy scannt und zeigt einen zurück, Tisch scannt mit der Kamera. Zwei Scans pro Gerät. Die Beschreibungen sind ~850 Zeichen, ein QR-Code fasst ~2900 – es passt. |
+| **Kleiner Signalisierungs-Dienst** | Ein Dienst nimmt Angebot und Antwort entgegen. Dann reicht **ein** Scan: Der QR-Code öffnet die Seite und die Verbindung stellt sich von selbst her. Der Dienst wird nur für den Handschlag gebraucht. |
+| **Server im eigenen WLAN** | Ein Rechner im Haus liefert Seite und Verbindung. Nichts verlässt das Netz, aber der Rechner muss laufen und jeder tippt eine IP-Adresse ein. |
 
-An Engine, Sichten, Gastgeber und Geräten ändert keiner dieser Wege eine Zeile. Reconnect
-nach Bildschirmsperre und Verbindungsaufbau im fremden WLAN lassen sich ohnehin erst am
-echten Tisch beurteilen.
+An Engine, Sichten, Gastgeber und Geräten ändert keiner dieser Wege eine Zeile.
+
+**Ohne gemeinsames WLAN** hilft der einfachste Trick: Ein Gerät macht einen Hotspot auf, die
+anderen gehen dort hinein. Dann sind alle in einem Netz und WebRTC verbindet sie direkt.
+Bluetooth geht nicht – ein Browser kann sich darüber nur *mit* einem Gerät verbinden, aber
+sich nicht selbst anbieten; zwei Browser finden sich so nie.
 
 Die Mehrgeräte-Oberfläche ist bewusst schlicht: Sie zeigt, dass die Aufteilung trägt, und
 ersetzt noch nicht die ausgearbeitete Oberfläche des Ein-Gerät-Modus.
