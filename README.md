@@ -240,21 +240,25 @@ speichern, laden und in Tests bequem vorbereiten.
 npm test
 ```
 
-85 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
+89 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
 Nachmischen bei leerem Stapel, die Abrechnung inklusive Strafpunkten und Gleichstand,
 Shoot the Moon, Punktlandung, Startspielerwechsel, Spielende und das Speichern ab –
 dazu den Ereignis-Verlauf, den Debug-Bericht, die Sichten-Filterung und den
 Mehrgeräte-Modus (Beitreten, Wiederverbinden, doppelte und veraltete Nachrichten).
 
-## Mehrgeräte-Modus
+## Mehrgeräte-Modus – Stand der Dinge
 
-Statt das Tablet herumzureichen, liegt es fest in der Mitte und zeigt den **Tisch**:
-Nachziehstapel, Ablage, wer am Zug ist, Punktestand. Jeder öffnet zusätzlich auf dem eigenen
-Handy eine **Hand** – dort und nur dort erscheinen die eigenen Karten. Beide Modi bestehen
-nebeneinander; der Ein-Gerät-Modus bleibt unverändert.
+Das Ziel aus Issue #1: Das Tablet liegt fest in der Mitte und zeigt den **Tisch**, jeder
+öffnet zusätzlich auf dem eigenen Handy eine **Hand**.
 
-Zu finden über den Knopf „Mehrgeräte-Modus“ im Einrichtungsbildschirm oder direkt unter
-`multi.html`.
+> **Heute funktioniert das nur zwischen Fenstern desselben Browsers auf demselben Gerät.**
+> Ein zweites Gerät im selben WLAN kann sich noch nicht verbinden – dafür fehlt der
+> Transport (siehe unten). Am Wohnzimmertisch spielst du bis dahin im Ein-Gerät-Modus.
+
+Was schon steht, ist alles außer der Verbindung: die Aufteilung in Tisch und Hand, die
+Filterung der Sichten, der Gastgeber mit Regelprüfung, Beitreten und Wiederverbinden. Zum
+Ausprobieren: `multi.html`, Tisch in einem Tab, jede Hand in einem weiteren. Beide Modi
+bestehen nebeneinander; der Ein-Gerät-Modus bleibt unverändert.
 
 ### Wie es aufgebaut ist
 
@@ -306,21 +310,30 @@ eine private Aufdeckung dagegen nicht: die sieht er gar nicht, und wegtippen wü
 den Blick nehmen. Auch der Tisch zeichnet übrigens aus einer beschnittenen Sicht und greift
 nie in den Spielzustand.
 
-### Was noch fehlt
+### Was noch fehlt: die Verbindung zwischen Geräten
 
-Der Transport reicht heute **nur über Fenster auf demselben Gerät** (`BroadcastChannel`) –
-zum Ausprobieren und zur Entwicklung. Für echte Geräte fehlt der WebRTC-Adapter mit dem
-Tablet als Gastgeber (Variante B aus Issue #1). Er passt hinter dieselbe Schnittstelle wie
-die vorhandenen Transporte; an Engine, Sichten, Gastgeber und Geräten ändert er keine Zeile.
-Reconnect nach Bildschirmsperre und ICE im fremden WLAN lassen sich erst am echten Tisch
-beurteilen.
+`BroadcastChannel` trägt nur zwischen Fenstern desselben Browsers auf demselben Gerät.
+Dasselbe WLAN genügt nicht, und kein Raumname ändert daran etwas – die Browser haben schlicht
+keine Möglichkeit, sich im Netz gegenseitig zu finden.
+
+Nötig ist einer dieser Wege, alle hinter derselben Transport-Schnittstelle:
+
+| Weg | Was er kostet |
+|---|---|
+| **WebRTC + kleiner Signalisierungs-Dienst** | Einmal einen winzigen Dienst betreiben. Danach läuft die Partie direkt zwischen den Geräten – der Dienst wird nur für den Handschlag gebraucht und darf danach schlafen. GitHub Pages und die PWA-Installation bleiben. |
+| **Server im eigenen WLAN** | Ein Rechner im Haus liefert Seite und Verbindung. Nichts verlässt das Netz, aber der Rechner muss laufen, jeder tippt eine IP-Adresse ein, und die Installation von GitHub Pages fällt für diesen Modus weg. |
+| **QR-Code-Handschlag** | Ganz ohne Dienst: Tisch zeigt einen Code, Handy scannt und zeigt einen zurück. Pro Handy zwei Scans und eine Kamera. |
+
+An Engine, Sichten, Gastgeber und Geräten ändert keiner dieser Wege eine Zeile. Reconnect
+nach Bildschirmsperre und Verbindungsaufbau im fremden WLAN lassen sich ohnehin erst am
+echten Tisch beurteilen.
 
 Die Mehrgeräte-Oberfläche ist bewusst schlicht: Sie zeigt, dass die Aufteilung trägt, und
 ersetzt noch nicht die ausgearbeitete Oberfläche des Ein-Gerät-Modus.
 
 ## Was noch fehlen könnte
 
-- **Mehrgeräte-Modus über echte Geräte**: WebRTC-Adapter – siehe Issue #1.
+- **Verbindung zwischen echten Geräten** – siehe Issue #1.
 - **Einwerfen (Snap)**: eigene Spielregel, im Mehrgeräte-Modus besonders reizvoll.
 - **Computergegner** für Partien zu zweit.
 - **Statistik** über mehrere Abende.

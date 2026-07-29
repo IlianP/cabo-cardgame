@@ -35,6 +35,7 @@ let seats = [{ name: '' }, { name: '' }, { name: '' }];
 let host = null;
 let client = null;
 let revealSeen = false;
+let lobbyDismissed = false;
 
 // ------------------------------------------------------------ Werkzeuge
 
@@ -152,6 +153,7 @@ function renderPlayerList() {
 
 function startAsTable() {
   const room = $('room').value.trim() || 'tisch';
+  $('t-room').textContent = room;
   const players = seats.map((s, i) => ({ name: s.name.trim() || `Spieler ${i + 1}` }));
   const game = new CaboGame({ players, rules: { ...DEFAULT_RULES } });
 
@@ -169,17 +171,43 @@ function startAsTable() {
   show('screen-table');
 }
 
+/**
+ * Warteraum. Die Partie läuft in der Engine zwar schon, aber solange kein
+ * Handy an einem Platz sitzt, kann dort niemand etwas tun – ein Tisch, der
+ * „Anna ist dran“ anzeigt, während Anna kein Fenster hat, sieht kaputt aus.
+ * Also: erst zeigen, worauf gewartet wird.
+ */
+function renderLobby(view) {
+  const waiting = view.waitingFor ?? [];
+  const done = waiting.length === 0;
+  $('t-lobby').classList.toggle('hidden', done || lobbyDismissed);
+  $('t-board').classList.toggle('hidden', !done && !lobbyDismissed);
+  if (done || lobbyDismissed) return;
+
+  $('t-lobby-seats').innerHTML = view.players
+    .map(
+      (p) => `<div class="lobby-seat ${p.connected ? 'is-here' : ''}">
+        <span class="lobby-dot" aria-hidden="true"></span>
+        <span>${esc(p.name)}</span>
+        <span class="muted">${p.connected ? 'bereit' : 'wartet …'}</span>
+      </div>`,
+    )
+    .join('');
+  // Anfangen darf man auch unvollständig – dann fehlt eben ein Platz.
+  $('btn-lobby-go').classList.toggle('hidden', waiting.length === view.players.length);
+}
+
 function renderTable(view) {
+  renderLobby(view);
   $('t-round').textContent = `Runde ${view.round}`;
   $('t-scores').innerHTML = view.players
     .map((p) => {
       const cls = ['score-chip'];
-      if (p.id === view.current) cls.push('score-chip--current');
+      if (p.id === view.current) cls.push('is-current');
       return `<span class="${cls.join(' ')}">${esc(p.name)} <b>${p.score}</b></span>`;
     })
     .join('');
 
-  const missing = new Set(host?.missingSeats() ?? []);
   $('t-seats').innerHTML = view.players
     .map((p) => {
       const cards = p.slots
@@ -191,10 +219,10 @@ function renderTable(view) {
           return cardHTML(card, { classes: slot.open ? ['card--open'] : [], label: String(i + 1) });
         })
         .join('');
-      const state = missing.has(p.id) ? '<span class="seat-missing">kein Gerät</span>' : '';
-      return `<div class="seat ${p.id === view.current ? 'seat--current' : ''}">
-          <div class="seat-head"><b>${esc(p.name)}</b> ${state}</div>
-          <div class="seat-cards">${cards}</div>
+      const state = p.connected === false ? '<span class="tag">kein Fenster</span>' : '';
+      return `<div class="seat ${p.id === view.current ? 'is-turn' : ''}">
+          <div class="seat-name">${esc(p.name)} ${state}</div>
+          <div class="seat-hand">${cards}</div>
         </div>`;
     })
     .join('');
@@ -243,22 +271,28 @@ function tablePrompt(view) {
 function startAsHand() {
   const room = $('room').value.trim() || 'tisch';
   const id = `handy-${Math.random().toString(36).slice(2, 8)}`;
-  let gotLobby = false;
   client = new CaboClient(new BroadcastChannelTransport(room, id), {
     onView: (view) => client.audience != null && renderHand(view),
-    onLobby: (players) => {
-      gotLobby = true;
-      renderSeatList(players);
-    },
+    onLobby: renderSeatList,
     onError: toast,
   });
   saveSeats();
   show('screen-seat');
-  $('seat-hint').textContent = 'Warte auf den Tisch …';
-  // Die Platzliste holen, ohne schon einen Platz zu belegen.
+  askForSeats();
+}
+
+/** Platzliste beim Tisch anfragen – ohne schon einen Platz zu belegen. */
+function askForSeats() {
+  $('seat-list').innerHTML = '';
+  $('seat-hint').textContent = 'Suche den Tisch …';
+  const asked = client;
   client.lobby();
   setTimeout(() => {
-    if (!gotLobby) $('seat-hint').textContent = 'Kein Tisch gefunden. Ist der Raumname gleich?';
+    if (client !== asked || $('seat-list').children.length) return;
+    $('seat-hint').innerHTML =
+      `Kein Tisch im Raum <b>${esc($('room').value.trim() || 'tisch')}</b> gefunden. ` +
+      'Der Tisch muss in einem <b>anderen Fenster desselben Browsers</b> offen sein – ' +
+      'ein zweites Gerät kann sich noch nicht verbinden.';
   }, 1200);
 }
 
@@ -281,6 +315,7 @@ function renderSeatList(players) {
         show('screen-hand');
       }),
     );
+  $('seat-hint').textContent = 'Ein belegter Platz lässt sich übernehmen – das alte Fenster verliert ihn dann.';
 }
 
 function renderHand(view) {
@@ -294,8 +329,9 @@ function renderHand(view) {
   $('h-table').innerHTML = view.players
     .filter((p) => !p.mine)
     .map(
-      (p) => `<div class="mini-seat ${p.id === view.current ? 'mini-seat--current' : ''}">
+      (p) => `<div class="mini-seat ${p.id === view.current ? 'is-turn' : ''}">
         <span>${esc(p.name)}</span>
+        <span class="mini-state muted">${p.connected === false ? 'kein Fenster' : ''}</span>
         <span class="mini-cards">${p.slots
           .map((slot) => `<i class="${slot.filled ? (slot.open ? 'pip pip--open' : 'pip') : 'pip pip--gone'}"></i>`)
           .join('')}</span>
@@ -489,6 +525,16 @@ function init() {
   $('btn-be-hand').addEventListener('click', startAsHand);
   $('h-reveal-ok').addEventListener('click', () => {
     if (revealSeen) client.act('ackReveal');
+  });
+  $('btn-seat-retry').addEventListener('click', askForSeats);
+  $('btn-seat-back').addEventListener('click', () => {
+    client?.close();
+    client = null;
+    show('screen-role');
+  });
+  $('btn-lobby-go').addEventListener('click', () => {
+    lobbyDismissed = true;
+    if (client?.view) renderTable(client.view);
   });
 
   // Nach dem Aufwachen (Bildschirmsperre) kann uns eine Sicht entgangen sein.
