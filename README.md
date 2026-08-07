@@ -215,6 +215,9 @@ js/transport.js         wie Nachrichten reisen (Speicher, BroadcastChannel)
 js/multi.js             Oberfläche für Tisch und Hand
 js/art.js               Zuordnung Kartenwert -> Bilddatei
 js/debug.js             Debug-Zustand als kopierbarer Text
+js/scenes.js            Choreografie: welcher Zug wird wie zur Bewegung
+js/seating.js           Sitzordnung: in welcher Richtung sitzt wer am Tisch
+js/flight.js            Flugebene: spielt die Bewegungen ab
 js/ui.js                Zeichnen des Spieltisches, Eingaben
 js/app.js               Einrichtung, Einstellungen, Speichern, Start
 art/00–13.webp          die Kartenbilder
@@ -226,6 +229,7 @@ test/engine.test.mjs    Tests der Spiellogik
 test/debug.test.mjs     Tests von Ereignis-Verlauf und Debug-Bericht
 test/view.test.mjs      Tests der Sichten-Filterung
 test/host.test.mjs      Tests des Mehrgeräte-Modus
+test/scenes.test.mjs    Tests der Choreografie und der Sitzordnung
 multi.html              Einstieg in den Mehrgeräte-Modus
 ```
 
@@ -233,6 +237,14 @@ Die Trennung ist bewusst scharf: `engine.js` enthält keine einzige DOM-Zeile, u
 Oberfläche entscheidet nie selbst, was aufgedeckt werden darf – das gibt immer die Engine
 über die Phase `reveal` vor. Der Spielzustand ist reines JSON und lässt sich damit
 speichern, laden und in Tests bequem vorbereiten.
+
+Dieselbe Trennung gilt für die Animationen: `scenes.js` übersetzt einen Verlaufseintrag
+in Flugbahnen und ist rein – Eintrag rein, Beschreibung raus, kein DOM. `flight.js` spielt
+diese Beschreibungen ab und kennt umgekehrt keine Spielregeln. Dadurch lässt sich die eine
+Frage, auf die es beim Sichtschutz ankommt, tatsächlich prüfen: Eine fliegende Karte wird
+immer so gezeigt, wie sie an ihrem *Ausgangsort* lag. Was aus einer Hand kommt, fliegt
+verdeckt und liegt erst beim Aufsetzen offen da – eine Animation kann damit nie etwas
+früher verraten als das Spiel selbst.
 
 ## Tests
 
