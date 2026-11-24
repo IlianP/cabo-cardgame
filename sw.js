@@ -6,7 +6,7 @@
  * Hintergrund nach einer neueren Fassung schauen.
  */
 
-const VERSION = 'cabo-v6';
+const VERSION = 'cabo-v7';
 const ASSETS = [
   './',
   'index.html',
@@ -62,15 +62,31 @@ self.addEventListener('fetch', (event) => {
   // Seite aus dem Cache – neue Knöpfe fehlen dann, und man sucht sie an
   // einem Gerät, das sie noch gar nicht kennt. Fällt das Netz aus, greift
   // wie bisher der Cache; offline bleibt die App also spielbar.
+  //
+  // Ein HTTP-Fehler ist dabei kein Netzausfall: Bei 503 oder 404 *gelingt*
+  // `fetch()`, nur eben mit einer Fehlerseite. Die darf weder ausgeliefert
+  // werden, solange eine funktionierende Seite im Cache liegt, noch diese
+  // überschreiben – sonst zeigt jeder spätere Offline-Besuch den Fehler statt
+  // des Spiels. Gecacht wird deshalb nur, was `ok` ist. Liegt gar nichts im
+  // Cache, ist die Fehlerseite immer noch besser als nichts.
+  //
+  // Ausnahme Weiterleitung: Seitenaufrufe holen sie als `opaqueredirect`
+  // (Status 0, also nicht `ok`), und der Browser folgt ihr selbst. Die
+  // gehört durchgereicht, nicht durch eine Seite aus dem Cache ersetzt.
   if (request.mode === 'navigate') {
+    const fromCache = () => caches.match(request).then((c) => c || caches.match('index.html'));
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(VERSION).then((cache) => cache.put(request, copy));
-          return response;
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(VERSION).then((cache) => cache.put(request, copy));
+            return response;
+          }
+          if (response.type === 'opaqueredirect') return response;
+          return fromCache().then((cached) => cached || response);
         })
-        .catch(() => caches.match(request).then((c) => c || caches.match('index.html'))),
+        .catch(fromCache),
     );
     return;
   }
