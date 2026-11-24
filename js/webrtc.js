@@ -91,6 +91,10 @@ const GRACE = 6000;
  * Verbindungszustand – und darauf muss man horchen, sonst hält der Tisch
  * einen Platz für besetzt, an dem niemand mehr sitzt, und niemand kann ihn
  * übernehmen.
+ *
+ * Gibt eine Funktion zurück, die das Horchen beendet – samt laufender
+ * Karenzfrist. Wer ein Gerät aufgibt, muss sie aufrufen, sonst feuert die
+ * Frist später noch für eine Verbindung, die längst vergessen ist.
  */
 function watchConnection(pc, onLost) {
   let timer = null;
@@ -98,7 +102,7 @@ function watchConnection(pc, onLost) {
     clearTimeout(timer);
     timer = null;
   };
-  pc.addEventListener('connectionstatechange', () => {
+  const onChange = () => {
     switch (pc.connectionState) {
       case 'failed':
       case 'closed':
@@ -114,8 +118,33 @@ function watchConnection(pc, onLost) {
       default:
         break;
     }
-  });
-  return clear;
+  };
+  pc.addEventListener('connectionstatechange', onChange);
+  return () => {
+    clear();
+    pc.removeEventListener('connectionstatechange', onChange);
+  };
+}
+
+/**
+ * Eine Verbindung endgültig aufgeben: Horchen beenden, Kanal abhängen,
+ * Leitung schließen.
+ *
+ * Erst abhängen, dann schließen – sonst meldet das Schließen selbst über
+ * `onclose` noch einmal einen Verlust. Und wirklich schließen, nicht nur
+ * vergessen: Eine Leitung, die nur aus der Liste fällt, bleibt offen. Erholt
+ * sich das Netz, redet die Gegenseite munter weiter, aber keine Antwort
+ * kommt mehr an – eine Einbahnstraße, die niemand bemerkt und die auch
+ * beim Aufräumen niemand mehr findet.
+ */
+function shutDown(pc, channel, stopWatching) {
+  stopWatching?.();
+  if (channel) {
+    channel.onopen = null;
+    channel.onclose = null;
+    channel.onmessage = null;
+  }
+  pc.close();
 }
 
 /**
@@ -191,7 +220,7 @@ export class WebRtcHostTransport {
     this.config = config;
     this.PC = PC ?? globalThis.RTCPeerConnection;
     this.listeners = new Listeners();
-    this.peers = new Map(); // deviceId -> { pc, channel }
+    this.peers = new Map(); // deviceId -> { pc, channel, stopWatching }
     this.pending = new Map(); // Einladung, die noch nicht eingelöst ist
     this.seq = 0;
   }
@@ -209,13 +238,13 @@ export class WebRtcHostTransport {
     // Ereignis. So braucht keine Seite zu raten, wer anfängt.
     const channel = pc.createDataChannel('cabo', { ordered: true });
     this._wireChannel(id, channel);
-    watchConnection(pc, () => this._lost(id));
+    const stopWatching = watchConnection(pc, () => this._lost(id));
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     await whenIceGathered(pc);
 
-    this.pending.set(id, { pc, channel });
+    this.pending.set(id, { pc, channel, stopWatching });
     return { id, signal: encodeSignal(pc.localDescription) };
   }
 
@@ -232,9 +261,20 @@ export class WebRtcHostTransport {
     return id;
   }
 
-  /** Ein Gerät ist weg – höchstens einmal melden, egal auf welchem Weg. */
+  /**
+   * Ein Gerät ist weg – höchstens einmal melden, egal auf welchem Weg.
+   *
+   * Die Leitung wird dabei geschlossen, nicht nur vergessen (siehe
+   * `shutDown`). Das gilt auch für eine noch nicht eingelöste Einladung:
+   * Auch sie hält eine Verbindung samt Kanal, und `close()` findet sie
+   * danach nicht mehr.
+   */
   _lost(id) {
-    if (!this.peers.delete(id) && !this.pending.delete(id)) return;
+    const entry = this.peers.get(id) ?? this.pending.get(id);
+    if (!entry) return;
+    this.peers.delete(id);
+    this.pending.delete(id);
+    shutDown(entry.pc, entry.channel, entry.stopWatching);
     this.listeners.fire(this.listeners.leave, id);
   }
 
@@ -270,7 +310,9 @@ export class WebRtcHostTransport {
   }
 
   close() {
-    for (const { pc } of [...this.peers.values(), ...this.pending.values()]) pc.close();
+    for (const { pc, channel, stopWatching } of [...this.peers.values(), ...this.pending.values()]) {
+      shutDown(pc, channel, stopWatching);
+    }
     this.peers.clear();
     this.pending.clear();
   }
@@ -289,6 +331,7 @@ export class WebRtcDeviceTransport {
     this.listeners = new Listeners();
     this.pc = null;
     this.channel = null;
+    this.stopWatching = null;
     // Löst auf, sobald der Kanal offen ist – und scheitert **nie**. Ein
     // Versprechen, das von selbst scheitert, obwohl es niemand eingelöst
     // hat, hinterlässt sonst eine unbehandelte Ablehnung in der Konsole.
@@ -324,11 +367,12 @@ export class WebRtcDeviceTransport {
     const pc = new this.PC(this.config);
     this.pc = pc;
 
-    watchConnection(pc, () => this.listeners.fire(this.listeners.leave, 'host'));
+    this.stopWatching = watchConnection(pc, () => this._lost(pc));
 
     pc.ondatachannel = (event) => {
+      if (this.pc !== pc) return; // schon aufgegeben
       this.channel = event.channel;
-      this._wireChannel(event.channel);
+      this._wireChannel(pc, event.channel);
       const open = () => {
         this._markReady();
         this.listeners.fire(this.listeners.join, 'host');
@@ -344,8 +388,31 @@ export class WebRtcDeviceTransport {
     return encodeSignal(pc.localDescription);
   }
 
-  _wireChannel(channel) {
-    channel.onclose = () => this.listeners.fire(this.listeners.leave, 'host');
+  /**
+   * Der Tisch ist weg – wie beim Gastgeber nur einmal melden und die Leitung
+   * wirklich schließen.
+   *
+   * Vorher meldeten Kanal und Verbindungszustand den Verlust jeweils für
+   * sich, also doppelt. Und nach Ablauf der Karenz blieb die Leitung offen:
+   * Das Gerät hielt den Tisch für weg, während der Tisch – wenn er seinerseits
+   * noch nicht aufgegeben hatte – weiter Sichten schickte. Der Gastgeber hat
+   * das Gerät nach derselben Frist ohnehin vergessen; zurück geht es nur über
+   * eine neue Einladung.
+   *
+   * @param {RTCPeerConnection} pc  die Leitung, die den Verlust meldet –
+   *   Meldungen einer schon aufgegebenen Leitung zählen nicht mehr.
+   */
+  _lost(pc) {
+    if (this.pc !== pc) return;
+    shutDown(pc, this.channel, this.stopWatching);
+    this.pc = null;
+    this.channel = null;
+    this.stopWatching = null;
+    this.listeners.fire(this.listeners.leave, 'host');
+  }
+
+  _wireChannel(pc, channel) {
+    channel.onclose = () => this._lost(pc);
     channel.onmessage = (event) => {
       let message;
       try {
@@ -375,8 +442,9 @@ export class WebRtcDeviceTransport {
   }
 
   close() {
-    this.pc?.close();
+    if (this.pc) shutDown(this.pc, this.channel, this.stopWatching);
     this.pc = null;
     this.channel = null;
+    this.stopWatching = null;
   }
 }

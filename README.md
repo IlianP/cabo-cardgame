@@ -229,6 +229,7 @@ test/debug.test.mjs     Tests von Ereignis-Verlauf und Debug-Bericht
 test/view.test.mjs      Tests der Sichten-Filterung
 test/host.test.mjs      Tests des Mehrgeräte-Modus
 test/webrtc.test.mjs    Tests des WebRTC-Transports (ohne Browser)
+test/sw.test.mjs        Tests des Service Workers (ohne Browser)
 multi.html              Einstieg in den Mehrgeräte-Modus
 ```
 
@@ -243,12 +244,13 @@ speichern, laden und in Tests bequem vorbereiten.
 npm test
 ```
 
-104 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
+116 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
 Nachmischen bei leerem Stapel, die Abrechnung inklusive Strafpunkten und Gleichstand,
 Shoot the Moon, Punktlandung, Startspielerwechsel, Spielende und das Speichern ab –
 dazu den Ereignis-Verlauf, den Debug-Bericht, die Sichten-Filterung und den
-Mehrgeräte-Modus (Beitreten, Wiederverbinden, doppelte und veraltete Nachrichten) und den
-WebRTC-Transport.
+Mehrgeräte-Modus (Beitreten, Wiederverbinden, doppelte und veraltete Nachrichten), den
+WebRTC-Transport (auch das Aufräumen verlorener Verbindungen) und den Service Worker
+(Seitenaufrufe bei Serverfehlern und ohne Netz).
 
 `RTCPeerConnection` gibt es in Node nicht – der echte Handschlag zwischen zwei Browsern
 läuft deshalb als eigenes Werkzeug, das einen Browser braucht und darum nicht in `npm test`
