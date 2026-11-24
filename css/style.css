@@ -95,7 +95,10 @@ body {
 
 /* ---------------------------- Einrichtung ---------------------------- */
 
-#screen-setup { overflow-y: auto; }
+/* Bildschirme, die länger als die Anzeige sind, müssen scrollen können –
+   sonst ist alles unterhalb der Falz schlicht unerreichbar. */
+#screen-setup,
+.screen--scroll { overflow-y: auto; }
 
 .setup-inner {
   width: min(760px, 100%);
@@ -219,7 +222,8 @@ input.pin-input { flex: 0 0 96px; text-align: center; letter-spacing: .3em; }
 
 /* -------------------------------- HUD -------------------------------- */
 
-#hud {
+#hud,
+.hud-bar {
   display: flex; align-items: center; gap: 10px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--line);
@@ -428,7 +432,8 @@ input.pin-input { flex: 0 0 96px; text-align: center; letter-spacing: .3em; }
 
 /* ------------------------------ Aktionen ----------------------------- */
 
-#actions {
+#actions,
+.actions-bar {
   flex: none;
   padding: 10px 12px calc(10px + var(--safe-b));
   border-top: 1px solid var(--line);
@@ -595,3 +600,7 @@ input.pin-input { flex: 0 0 96px; text-align: center; letter-spacing: .3em; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* Verweis-Kachel im Einrichtungsbildschirm: Überschrift und Knopf in einer
+   Zeile, damit der Einstieg oben sichtbar ist statt unter dem Formular. */
+.panel--link .panel-head .btn { flex: none; }

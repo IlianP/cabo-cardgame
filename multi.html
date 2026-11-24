@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Cabo – Mehrgeräte</title>
+<title>Cabo – Mehrere Fenster</title>
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/multi.css">
 <link rel="manifest" href="manifest.webmanifest">
@@ -11,76 +11,113 @@
 </head>
 <body>
 
-<!-- Rollenwahl ------------------------------------------------------- -->
-<section id="screen-role" class="screen">
-  <div class="setup">
-    <h1 class="title">Cabo <span class="title-sub">Mehrgeräte</span></h1>
+<!-- ============================ Rollenwahl ============================ -->
+<section id="screen-role" class="screen screen--scroll">
+  <div class="setup-inner">
+    <header class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <span class="brand-card brand-card--back"></span>
+        <span class="brand-card brand-card--front">0</span>
+      </div>
+      <div>
+        <h1>Cabo</h1>
+        <p class="brand-sub">Tisch und Hände auf getrennten Bildschirmen.</p>
+      </div>
+    </header>
 
-    <p class="muted lead">
-      Ein Gerät liegt als <b>Tisch</b> in der Mitte und zeigt Stapel, Ablage und Punkte.
-      Jeder öffnet zusätzlich auf dem eigenen Handy eine <b>Hand</b> – dort und nur dort
-      erscheinen die eigenen Karten.
-    </p>
-
-    <div class="card-box">
-      <h2>Raum</h2>
-      <label class="field">
-        <span>Name des Raums</span>
-        <input id="room" type="text" value="tisch" maxlength="20" autocomplete="off">
-      </label>
-      <p class="muted small">
-        Alle Geräte brauchen denselben Raumnamen. Diese Fassung verbindet Fenster
-        <b>auf demselben Gerät</b> (BroadcastChannel) – zum Ausprobieren, noch nicht
-        über echte Geräte hinweg.
+    <!-- Ehrlich und weit oben: Was das hier kann und was nicht. -->
+    <div class="panel panel--warn">
+      <h2>Nur auf diesem Gerät</h2>
+      <p>
+        Diese Fassung verbindet <b>Fenster desselben Browsers auf demselben Gerät</b> –
+        also mehrere Tabs. Ein zweites Gerät im selben WLAN kann sich
+        <b>noch nicht</b> verbinden, auch nicht über den Raumnamen.
+      </p>
+      <p class="muted">
+        Zum Ausprobieren gedacht: Tisch in einem Tab, jede Hand in einem weiteren.
+        Für echte Geräte fehlt die Verbindung noch – siehe
+        <a href="https://github.com/IlianP/cabo-cardgame/issues/1">Issue&nbsp;#1</a>.
+        Am Wohnzimmertisch spielst du bis dahin im
+        <a href="index.html">Ein-Gerät-Modus</a>.
       </p>
     </div>
 
-    <div class="card-box">
-      <h2>Diese Rolle</h2>
-      <div class="role-buttons">
-        <button class="btn btn--primary btn--big" id="btn-be-table" type="button">
-          Tisch eröffnen
-        </button>
-        <button class="btn btn--big" id="btn-be-hand" type="button">Als Hand beitreten</button>
+    <div class="panel">
+      <h2>Raum</h2>
+      <div class="player-row">
+        <span class="seat-no" aria-hidden="true">#</span>
+        <input id="room" type="text" value="tisch" maxlength="20" autocomplete="off"
+               aria-label="Name des Raums">
       </div>
+      <p class="rule-hint">Alle Fenster brauchen denselben Raumnamen.</p>
     </div>
 
-    <div class="card-box" id="host-setup">
-      <h2>Mitspieler <span class="muted small">(nur beim Tisch)</span></h2>
+    <div class="panel" id="panel-players">
+      <h2>Mitspieler</h2>
       <div id="player-list" class="player-list"></div>
       <div class="row">
         <button class="btn" id="btn-remove-player" type="button">− Spieler</button>
         <button class="btn" id="btn-add-player" type="button">+ Spieler</button>
       </div>
+      <p class="rule-hint">Nur nötig, wenn du den Tisch eröffnest.</p>
     </div>
 
-    <p class="muted small">
-      <a href="index.html">Zurück zum Ein-Gerät-Modus</a>
-    </p>
+    <div class="setup-actions setup-actions--stack">
+      <button class="btn btn--primary btn--big" id="btn-be-table" type="button">
+        Tisch eröffnen
+      </button>
+      <button class="btn btn--big" id="btn-be-hand" type="button">Als Hand beitreten</button>
+    </div>
+    <p class="fineprint"><a href="index.html">Zurück zum Ein-Gerät-Modus</a></p>
   </div>
 </section>
 
-<!-- Platzwahl -------------------------------------------------------- -->
-<section id="screen-seat" class="screen hidden">
-  <div class="setup">
-    <h1 class="title">Wer bist du?</h1>
-    <p class="muted lead">Tippe auf deinen Platz. Ein Platz gehört immer nur einem Gerät.</p>
-    <div id="seat-list" class="seat-list"></div>
-    <p class="muted small" id="seat-hint"></p>
+<!-- ============================ Platzwahl ============================= -->
+<section id="screen-seat" class="screen screen--scroll hidden">
+  <div class="setup-inner">
+    <header class="brand">
+      <div>
+        <h1>Wer bist du?</h1>
+        <p class="brand-sub">Ein Platz gehört immer nur einem Fenster.</p>
+      </div>
+    </header>
+    <div class="panel">
+      <div id="seat-list" class="seat-list"></div>
+      <p class="rule-hint" id="seat-hint"></p>
+    </div>
+    <div class="setup-actions">
+      <button class="btn" id="btn-seat-back" type="button">Zurück</button>
+      <button class="btn" id="btn-seat-retry" type="button">Noch einmal suchen</button>
+    </div>
   </div>
 </section>
 
-<!-- Tisch ------------------------------------------------------------ -->
+<!-- ============================== Tisch =============================== -->
 <section id="screen-table" class="screen hidden">
-  <header id="hud">
+  <header class="hud-bar">
     <div class="hud-round" id="t-round"></div>
     <div class="hud-scores" id="t-scores"></div>
   </header>
-  <main class="table">
+
+  <!-- Warteraum: bleibt, bis jeder Platz ein Fenster hat. -->
+  <div id="t-lobby" class="lobby">
+    <h2 class="lobby-title">Warten auf die Hände</h2>
+    <p class="lobby-step">
+      Öffne für jeden Mitspieler ein weiteres Fenster mit dieser Seite,
+      tippe dort auf <b>Als Hand beitreten</b> und wähle den Namen.
+    </p>
+    <p class="lobby-room">Raum: <b id="t-room"></b></p>
+    <div id="t-lobby-seats" class="lobby-seats"></div>
+    <button class="btn btn--primary btn--big hidden" id="btn-lobby-go" type="button">
+      Trotzdem anfangen
+    </button>
+  </div>
+
+  <main class="table-main hidden" id="t-board">
     <div class="opponents" id="t-seats"></div>
     <div class="center">
       <div class="pile">
-        <span class="pile-card card card--down"></span>
+        <span class="pile-card pile-card--back"></span>
         <span class="pile-label">Nachziehen <b id="t-deck"></b></span>
       </div>
       <div class="pile">
@@ -88,31 +125,35 @@
         <span class="pile-label">Ablage</span>
       </div>
     </div>
-    <p class="prompt" id="t-prompt"></p>
-    <div class="buttons" id="t-buttons"></div>
+    <footer class="actions-bar">
+      <p id="t-prompt" class="prompt"></p>
+      <div id="t-buttons" class="buttons"></div>
+    </footer>
     <div class="log" id="t-log"></div>
   </main>
 </section>
 
-<!-- Hand ------------------------------------------------------------- -->
+<!-- =============================== Hand =============================== -->
 <section id="screen-hand" class="screen hidden">
-  <header id="hud">
+  <header class="hud-bar">
     <div class="hud-round" id="h-who"></div>
     <div class="hud-scores" id="h-state"></div>
   </header>
   <main class="hand-main">
     <div class="hand-table" id="h-table"></div>
-    <div class="hand-own">
-      <h2 class="hand-title">Deine Hand</h2>
-      <div class="hand-cards" id="h-cards"></div>
+    <div class="me">
+      <div class="seat-name">Deine Hand</div>
+      <div class="seat-hand" id="h-cards"></div>
     </div>
-    <p class="prompt" id="h-prompt"></p>
-    <div class="buttons" id="h-buttons"></div>
+    <footer class="actions-bar">
+      <p id="h-prompt" class="prompt"></p>
+      <div id="h-buttons" class="buttons"></div>
+    </footer>
   </main>
 </section>
 
 <div id="h-reveal" class="overlay overlay--reveal hidden">
-  <div class="reveal-box">
+  <div class="reveal-inner">
     <h2 class="reveal-title" id="h-reveal-title"></h2>
     <p class="reveal-note" id="h-reveal-note"></p>
     <div class="reveal-cards" id="h-reveal-cards"></div>

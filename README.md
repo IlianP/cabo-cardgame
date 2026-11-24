@@ -212,6 +212,7 @@ js/view.js              Sichten: was ein einzelnes Gerät erfahren darf
 js/host.js              Gastgeber: prüft Züge, verteilt Sichten
 js/client.js            Gerät: hält seine Sicht, schickt Absichten
 js/transport.js         wie Nachrichten reisen (Speicher, BroadcastChannel)
+js/webrtc.js            direkte Verbindung zwischen zwei Geräten
 js/multi.js             Oberfläche für Tisch und Hand
 js/art.js               Zuordnung Kartenwert -> Bilddatei
 js/debug.js             Debug-Zustand als kopierbarer Text
@@ -222,10 +223,12 @@ sw.js                   Service Worker für den Offline-Betrieb
 tools/art-prompts.json  Modell, Parameter und Prompts der Bildgenerierung
 tools/generate-art.mjs  erzeugt und rechnet die Kartenbilder um
 tools/make-icons.py     erzeugt die App-Icons (nur Standardbibliothek)
+tools/rtc-check.mjs     echter WebRTC-Handschlag zwischen zwei Browser-Seiten
 test/engine.test.mjs    Tests der Spiellogik
 test/debug.test.mjs     Tests von Ereignis-Verlauf und Debug-Bericht
 test/view.test.mjs      Tests der Sichten-Filterung
 test/host.test.mjs      Tests des Mehrgeräte-Modus
+test/webrtc.test.mjs    Tests des WebRTC-Transports (ohne Browser)
 multi.html              Einstieg in den Mehrgeräte-Modus
 ```
 
@@ -240,21 +243,35 @@ speichern, laden und in Tests bequem vorbereiten.
 npm test
 ```
 
-85 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
+104 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
 Nachmischen bei leerem Stapel, die Abrechnung inklusive Strafpunkten und Gleichstand,
 Shoot the Moon, Punktlandung, Startspielerwechsel, Spielende und das Speichern ab –
 dazu den Ereignis-Verlauf, den Debug-Bericht, die Sichten-Filterung und den
-Mehrgeräte-Modus (Beitreten, Wiederverbinden, doppelte und veraltete Nachrichten).
+Mehrgeräte-Modus (Beitreten, Wiederverbinden, doppelte und veraltete Nachrichten) und den
+WebRTC-Transport.
 
-## Mehrgeräte-Modus
+`RTCPeerConnection` gibt es in Node nicht – der echte Handschlag zwischen zwei Browsern
+läuft deshalb als eigenes Werkzeug, das einen Browser braucht und darum nicht in `npm test`
+hängt:
 
-Statt das Tablet herumzureichen, liegt es fest in der Mitte und zeigt den **Tisch**:
-Nachziehstapel, Ablage, wer am Zug ist, Punktestand. Jeder öffnet zusätzlich auf dem eigenen
-Handy eine **Hand** – dort und nur dort erscheinen die eigenen Karten. Beide Modi bestehen
-nebeneinander; der Ein-Gerät-Modus bleibt unverändert.
+```bash
+npx playwright@latest install chromium   # einmalig
+node tools/rtc-check.mjs
+```
 
-Zu finden über den Knopf „Mehrgeräte-Modus“ im Einrichtungsbildschirm oder direkt unter
-`multi.html`.
+## Mehrgeräte-Modus – Stand der Dinge
+
+Das Ziel aus Issue #1: Das Tablet liegt fest in der Mitte und zeigt den **Tisch**, jeder
+öffnet zusätzlich auf dem eigenen Handy eine **Hand**.
+
+> **Heute funktioniert das nur zwischen Fenstern desselben Browsers auf demselben Gerät.**
+> Ein zweites Gerät im selben WLAN kann sich noch nicht verbinden – dafür fehlt der
+> Transport (siehe unten). Am Wohnzimmertisch spielst du bis dahin im Ein-Gerät-Modus.
+
+Was schon steht, ist alles außer der Verbindung: die Aufteilung in Tisch und Hand, die
+Filterung der Sichten, der Gastgeber mit Regelprüfung, Beitreten und Wiederverbinden. Zum
+Ausprobieren: `multi.html`, Tisch in einem Tab, jede Hand in einem weiteren. Beide Modi
+bestehen nebeneinander; der Ein-Gerät-Modus bleibt unverändert.
 
 ### Wie es aufgebaut ist
 
@@ -306,21 +323,42 @@ eine private Aufdeckung dagegen nicht: die sieht er gar nicht, und wegtippen wü
 den Blick nehmen. Auch der Tisch zeichnet übrigens aus einer beschnittenen Sicht und greift
 nie in den Spielzustand.
 
-### Was noch fehlt
+### Verbindung zwischen echten Geräten
 
-Der Transport reicht heute **nur über Fenster auf demselben Gerät** (`BroadcastChannel`) –
-zum Ausprobieren und zur Entwicklung. Für echte Geräte fehlt der WebRTC-Adapter mit dem
-Tablet als Gastgeber (Variante B aus Issue #1). Er passt hinter dieselbe Schnittstelle wie
-die vorhandenen Transporte; an Engine, Sichten, Gastgeber und Geräten ändert er keine Zeile.
-Reconnect nach Bildschirmsperre und ICE im fremden WLAN lassen sich erst am echten Tisch
-beurteilen.
+`js/webrtc.js` verbindet zwei Browser direkt miteinander – ohne Vermittler, ohne Internet,
+auch im reinen WLAN. Nachgewiesen mit `node tools/rtc-check.mjs`: zwei getrennte
+Browser-Kontexte, echte `RTCPeerConnection`, eine Runde Cabo darüber.
+
+Was dabei **noch fehlt, ist der Handschlag**. Bevor eine Verbindung steht, müssen beide
+Seiten einmal eine Beschreibung austauschen:
+
+```
+   Tisch  ──── Angebot ────>  Handy
+   Tisch  <──── Antwort ────  Handy
+```
+
+Danach braucht es den Weg nie wieder. Nur diese zwei Nachrichten müssen hinüber, und dafür
+gibt es drei Wege – alle hinter derselben Schnittstelle:
+
+| Weg | Was er kostet |
+|---|---|
+| **QR-Code** | Ganz ohne Dienst: Tisch zeigt einen Code, Handy scannt und zeigt einen zurück, Tisch scannt mit der Kamera. Zwei Scans pro Gerät. Die Beschreibungen sind ~850 Zeichen, ein QR-Code fasst ~2900 – es passt. |
+| **Kleiner Signalisierungs-Dienst** | Ein Dienst nimmt Angebot und Antwort entgegen. Dann reicht **ein** Scan: Der QR-Code öffnet die Seite und die Verbindung stellt sich von selbst her. Der Dienst wird nur für den Handschlag gebraucht. |
+| **Server im eigenen WLAN** | Ein Rechner im Haus liefert Seite und Verbindung. Nichts verlässt das Netz, aber der Rechner muss laufen und jeder tippt eine IP-Adresse ein. |
+
+An Engine, Sichten, Gastgeber und Geräten ändert keiner dieser Wege eine Zeile.
+
+**Ohne gemeinsames WLAN** hilft der einfachste Trick: Ein Gerät macht einen Hotspot auf, die
+anderen gehen dort hinein. Dann sind alle in einem Netz und WebRTC verbindet sie direkt.
+Bluetooth geht nicht – ein Browser kann sich darüber nur *mit* einem Gerät verbinden, aber
+sich nicht selbst anbieten; zwei Browser finden sich so nie.
 
 Die Mehrgeräte-Oberfläche ist bewusst schlicht: Sie zeigt, dass die Aufteilung trägt, und
 ersetzt noch nicht die ausgearbeitete Oberfläche des Ein-Gerät-Modus.
 
 ## Was noch fehlen könnte
 
-- **Mehrgeräte-Modus über echte Geräte**: WebRTC-Adapter – siehe Issue #1.
+- **Verbindung zwischen echten Geräten** – siehe Issue #1.
 - **Einwerfen (Snap)**: eigene Spielregel, im Mehrgeräte-Modus besonders reizvoll.
 - **Computergegner** für Partien zu zweit.
 - **Statistik** über mehrere Abende.

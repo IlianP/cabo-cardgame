@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 
 import { CaboGame, PHASE, legalActions, canSelectCard } from '../js/engine.js';
 import { mulberry32 } from '../js/deck.js';
-import { TABLE } from '../js/view.js';
+import { TABLE, viewFor } from '../js/view.js';
 import { CaboHost } from '../js/host.js';
 import { CaboClient } from '../js/client.js';
 import { MemoryHub } from '../js/transport.js';
@@ -460,4 +460,56 @@ test('canSelectCard stimmt mit selectCard überein', () => {
     }
   }
   assert.ok(accepted > 10, `zu wenig geprüft: ${accepted}`);
+});
+
+// ------------------------------------------------------ Wer ist schon da
+
+test('Ein Beitritt erreicht auch die schon verbundenen Geräte', () => {
+  const hub = new MemoryHub();
+  const game = new CaboGame({
+    players: [{ name: 'Anna' }, { name: 'Bea' }],
+    rng: mulberry32(7),
+  });
+  const host = new CaboHost(game, { transport: hub.connect('host') });
+
+  const table = new CaboClient(hub.connect('tisch'), {});
+  table.join(TABLE);
+  // Solange niemand sonst da ist, wartet der Tisch auf beide.
+  assert.deepEqual(table.view.waitingFor, [0, 1]);
+  assert.equal(table.view.players[0].connected, false);
+
+  const anna = new CaboClient(hub.connect('handy-0'), {});
+  anna.join(0);
+
+  // Genau das fehlte vorher: Der Tisch muss den Beitritt mitbekommen,
+  // ohne dass irgendjemand einen Zug macht.
+  assert.deepEqual(table.view.waitingFor, [1]);
+  assert.equal(table.view.players[0].connected, true);
+  assert.equal(table.view.players[1].connected, false);
+  // Und Anna sieht ebenfalls, auf wen noch gewartet wird.
+  assert.deepEqual(anna.view.waitingFor, [1]);
+});
+
+test('Geht ein Gerät verloren, erfahren es die anderen', () => {
+  const t = newTable(['Anna', 'Bea', 'Cem']);
+  assert.deepEqual(t.table.view.waitingFor, []);
+
+  t.phones[2].transport.close();
+  assert.deepEqual(t.table.view.waitingFor, [2]);
+  assert.equal(t.phones[0].view.players[2].connected, false);
+});
+
+test('Der Tisch selbst besetzt keinen Spielplatz', () => {
+  const t = newTable(['Anna', 'Bea']);
+  assert.deepEqual(t.host.connectedSeats().sort(), [0, 1]);
+  assert.equal(t.table.view.players.every((p) => p.connected), true);
+});
+
+test('Ohne Geräteliste behauptet die Sicht nichts über Anwesenheit', () => {
+  // Der Ein-Gerät-Modus baut Sichten ohne Gastgeber – dort wäre „niemand
+  // verbunden“ eine falsche Aussage, nicht bloß eine fehlende.
+  const game = new CaboGame({ players: [{ name: 'Anna' }, { name: 'Bea' }], rng: mulberry32(3) });
+  const view = viewFor(game.state, TABLE);
+  assert.equal(view.waitingFor, null);
+  assert.equal(view.players[0].connected, null);
 });
