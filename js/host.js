@@ -107,18 +107,33 @@ export class CaboHost {
       }
     }
     this.devices.set(deviceId, { audience, link: link ?? this.devices.get(deviceId)?.link ?? null });
-    this.send(deviceId, { type: 'joined', audience, view: viewFor(this.game.state, audience) });
+    this.send(deviceId, { type: 'joined', audience, view: this.viewFor(audience) });
+    // Alle anderen müssen es auch erfahren: Der Tisch zeigt an, auf wen noch
+    // gewartet wird, und die Handys sehen, wer schon da ist. Ohne das bleibt
+    // der Tisch nach einem Beitritt stehen und wirkt tot.
+    this.broadcast(null, deviceId);
     return audience;
   }
 
   detach(deviceId) {
-    this.devices.delete(deviceId);
+    if (!this.devices.delete(deviceId)) return;
+    this.broadcast();
+  }
+
+  /** Welche Plätze gerade ein Gerät haben. */
+  connectedSeats() {
+    return [...this.devices.values()].map((d) => d.audience).filter((a) => a !== TABLE);
   }
 
   /** Welche Plätze gerade kein Gerät haben – der Tisch zeigt das an. */
   missingSeats() {
-    const taken = new Set([...this.devices.values()].map((d) => d.audience));
+    const taken = new Set(this.connectedSeats());
     return this.game.state.players.filter((p) => !taken.has(p.id)).map((p) => p.id);
+  }
+
+  /** Sicht samt Geräteliste – die kennt nur der Gastgeber. */
+  viewFor(audience) {
+    return viewFor(this.game.state, audience, { connected: this.connectedSeats() });
   }
 
   // --------------------------------------------------------- Nachrichten
@@ -233,7 +248,7 @@ export class CaboHost {
   broadcast(seq = null, origin = null) {
     const built = new Map();
     for (const [deviceId, info] of this.devices) {
-      if (!built.has(info.audience)) built.set(info.audience, viewFor(this.game.state, info.audience));
+      if (!built.has(info.audience)) built.set(info.audience, this.viewFor(info.audience));
       this.send(deviceId, {
         type: 'view',
         view: built.get(info.audience),
@@ -243,7 +258,7 @@ export class CaboHost {
   }
 
   sendView(deviceId, audience, extra = {}) {
-    this.send(deviceId, { type: 'view', view: viewFor(this.game.state, audience), ...extra });
+    this.send(deviceId, { type: 'view', view: this.viewFor(audience), ...extra });
   }
 
   send(deviceId, message) {
