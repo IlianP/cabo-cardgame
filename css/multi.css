@@ -1,101 +1,198 @@
 /**
- * Mehrere Fenster – ergänzt style.css.
+ * Mehrgeräte-Modus – ergänzt style.css.
  *
- * Bewusst wenig: Rollenwahl, Platzwahl und Warteraum benutzen dieselben
- * Bausteine wie der Ein-Gerät-Modus (`.setup-inner`, `.panel`, `.btn`).
- * Eigene Regeln gibt es nur für das, was es dort nicht gibt: den
- * Warteraum, die kleine Nachbaranzeige auf der Hand und den Verlauf am
- * Tisch.
+ * Zwei Bildschirme mit unterschiedlichem Auftrag: Der Tisch liegt fest in
+ * der Mitte und wird aus etwas Entfernung gelesen, die Hand liegt vor
+ * einer einzelnen Person. Entsprechend groß bzw. kompakt ist alles.
  */
 
-/* Der Hinweis, was dieser Modus (noch) nicht kann – sichtbar, nicht versteckt. */
-.panel--warn {
-  border-color: rgba(230, 184, 86, .45);
-  background: rgba(230, 184, 86, .08);
+.lead {
+  max-width: 46ch;
+  line-height: 1.5;
 }
-.panel--warn p { font-size: 14px; line-height: 1.5; margin-top: 6px; }
-.panel--warn a { color: var(--gold); }
 
-.setup-actions--stack { flex-direction: column; }
-
-/* ------------------------------------------------------------ Platzwahl */
-
-.seat-list { display: flex; flex-direction: column; gap: 10px; }
-.seat-choice { width: 100%; text-align: left; }
-.seat-choice[data-taken] { opacity: .6; }
-
-/* ------------------------------------------------------------ Warteraum */
-
-.lobby {
-  flex: 1;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 14px; padding: 24px; text-align: center;
+.small {
+  font-size: 0.85rem;
 }
-.lobby-title { font-size: clamp(22px, 4vw, 30px); }
-.lobby-step { max-width: 40ch; line-height: 1.5; color: var(--muted); }
-.lobby-step b { color: var(--cream); }
-.lobby-room { color: var(--muted); font-size: 15px; }
-.lobby-room b { color: var(--gold); }
 
-.lobby-seats { display: flex; flex-direction: column; gap: 8px; min-width: min(320px, 100%); }
-.lobby-seat {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px; border-radius: 12px;
-  border: 1px solid var(--line); background: rgba(255, 255, 255, .04);
+.field {
+  display: block;
+  margin-bottom: 0.6rem;
 }
-.lobby-seat > span:nth-child(2) { flex: 1; text-align: left; }
-.lobby-dot {
-  width: 10px; height: 10px; border-radius: 50%;
-  background: var(--muted); flex: none;
+
+.field span {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+  opacity: 0.8;
 }
-.lobby-seat.is-here { border-color: rgba(230, 184, 86, .5); }
-.lobby-seat.is-here .lobby-dot { background: var(--gold); }
 
-/* ---------------------------------------------------------------- Tisch */
-
-.table-main {
-  flex: 1; min-height: 0;
-  display: flex; flex-direction: column; gap: 12px;
-  padding: 12px;
+.field input {
+  width: 100%;
 }
-.table-main .opponents { justify-content: center; }
 
-/* Eine Karte, die der ganze Tisch kennt – deutlich markiert, damit niemand
-   rätselt, warum sie offen liegt. */
-.card--open { outline: 2px solid rgba(230, 184, 86, .8); outline-offset: 2px; }
+.role-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.role-buttons .btn {
+  flex: 1 1 12rem;
+}
+
+.seat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.seat-choice[data-taken] {
+  opacity: 0.55;
+}
+
+/* ------------------------------------------------------------- Tisch */
+
+#screen-table .table {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+#screen-table .opponents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+}
+
+#screen-table .seat {
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px solid transparent;
+}
+
+#screen-table .seat--current {
+  border-color: var(--accent, #e8c060);
+}
+
+.seat-head {
+  margin-bottom: 0.4rem;
+  font-size: 1.05rem;
+}
+
+.seat-missing {
+  margin-left: 0.4rem;
+  font-size: 0.75rem;
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.seat-cards {
+  display: flex;
+  gap: 0.35rem;
+}
+
+/* Eine Karte, die der ganze Tisch kennt – bewusst deutlich markiert, damit
+   niemand rätselt, warum sie offen liegt. */
+.card--open {
+  outline: 2px solid rgba(232, 192, 96, 0.8);
+  outline-offset: 2px;
+}
 
 .log {
-  max-height: 8.5rem; overflow-y: auto;
-  font-size: 13px; color: var(--muted); line-height: 1.55;
+  margin-top: auto;
+  max-height: 9rem;
+  overflow-y: auto;
+  font-size: 0.85rem;
+  opacity: 0.75;
+  line-height: 1.5;
 }
-.log-line { padding: 1px 0; }
 
-/* ----------------------------------------------------------------- Hand */
+.log-line {
+  padding: 0.1rem 0;
+}
+
+/* -------------------------------------------------------------- Hand */
 
 .hand-main {
-  flex: 1; min-height: 0;
-  display: flex; flex-direction: column; gap: 12px;
-  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  height: 100%;
+  box-sizing: border-box;
 }
-.hand-table { display: flex; flex-direction: column; gap: 6px; }
+
+.hand-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
 
 .mini-seat {
-  display: flex; align-items: center; gap: 10px;
-  padding: 7px 12px; border-radius: 10px;
-  background: rgba(255, 255, 255, .04);
-  font-size: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.6rem;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.95rem;
 }
-.mini-seat.is-turn { background: rgba(230, 184, 86, .16); }
-.mini-seat > span:first-child { flex: 1; }
-.mini-state { font-size: 12px; }
 
-.mini-cards { display: flex; gap: 4px; }
+.mini-seat--current {
+  background: rgba(232, 192, 96, 0.16);
+}
+
+.mini-cards {
+  display: flex;
+  gap: 0.25rem;
+}
+
 .pip {
-  width: 11px; height: 15px; border-radius: 3px;
-  background: rgba(247, 243, 232, .35); display: inline-block;
+  width: 0.7rem;
+  height: 1rem;
+  border-radius: 0.15rem;
+  background: rgba(255, 255, 255, 0.35);
+  display: inline-block;
 }
-.pip--open { background: var(--gold); }
-.pip--gone { background: transparent; border: 1px dashed rgba(247, 243, 232, .25); }
 
-.hand-main .me { flex: none; }
-.hand-main .seat-hand { flex-wrap: wrap; }
+.pip--open {
+  background: rgba(232, 192, 96, 0.9);
+}
+
+.pip--gone {
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+}
+
+.hand-title {
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+  margin: 0 0 0.5rem;
+}
+
+.hand-cards {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.hand-cards .drawn {
+  margin-left: auto;
+}
+
+@media (min-width: 700px) {
+  .hand-cards .card {
+    width: 5.5rem;
+    height: 8rem;
+  }
+}

@@ -6,7 +6,7 @@
  * Hintergrund nach einer neueren Fassung schauen.
  */
 
-const VERSION = 'cabo-v6';
+const VERSION = 'cabo-v5';
 const ASSETS = [
   './',
   'index.html',
@@ -55,25 +55,6 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
-
-  // Seitenaufrufe zuerst aus dem Netz.
-  //
-  // Sonst zeigt der erste Aufruf nach einer neuen Fassung noch die alte
-  // Seite aus dem Cache – neue Knöpfe fehlen dann, und man sucht sie an
-  // einem Gerät, das sie noch gar nicht kennt. Fällt das Netz aus, greift
-  // wie bisher der Cache; offline bleibt die App also spielbar.
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(VERSION).then((cache) => cache.put(request, copy));
-          return response;
-        })
-        .catch(() => caches.match(request).then((c) => c || caches.match('index.html'))),
-    );
-    return;
-  }
 
   event.respondWith(
     caches.match(request).then((cached) => {

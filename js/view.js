@@ -30,45 +30,30 @@ import { POWER_NAME } from './deck.js';
 
 export const TABLE = 'table';
 
-/**
- * Welche Plätze gerade ein Gerät haben, weiß nur der Gastgeber – das steht
- * nicht im Spielzustand. Es gehört trotzdem in die Sicht: Sonst kann ein
- * Handy nicht anzeigen, auf wen noch gewartet wird, und der Tisch müsste
- * am Gastgeber vorbeigreifen.
- *
- * @typedef {{connected?: number[]}} ViewOptions
- */
-
 /** Der öffentliche Tisch: alles, was jeder im Raum ohnehin sieht. */
-export function tableView(state, options = {}) {
-  return buildView(state, TABLE, options);
+export function tableView(state) {
+  return buildView(state, TABLE);
 }
 
 /** Die Sicht eines einzelnen Spielers auf dem eigenen Handy. */
-export function playerView(state, playerId, options = {}) {
+export function playerView(state, playerId) {
   if (!state.players.some((p) => p.id === playerId)) {
     // GameError wie in der Engine: ein Gastgeber soll „Handy hat Unsinn
     // geschickt“ von einem eigenen Fehler unterscheiden können.
     throw new GameError(`Diesen Spieler gibt es nicht: ${playerId}`);
   }
-  return buildView(state, playerId, options);
+  return buildView(state, playerId);
 }
 
-/**
- * @param {'table'|number} audience
- * @param {ViewOptions} [options]
- */
-export function viewFor(state, audience, options = {}) {
-  return audience === TABLE ? tableView(state, options) : playerView(state, audience, options);
+/** @param {'table'|number} audience */
+export function viewFor(state, audience) {
+  return audience === TABLE ? tableView(state) : playerView(state, audience);
 }
 
 // --------------------------------------------------------------- Aufbau
 
-function buildView(state, audience, options = {}) {
+function buildView(state, audience) {
   const me = audience === TABLE ? null : audience;
-  // null heißt „der Aufrufer führt keine Geräteliste“ – dann behauptet die
-  // Sicht auch nichts darüber, statt alle als abwesend zu melden.
-  const connected = options.connected ? new Set(options.connected) : null;
   const allowed = new Set();
   const allow = (id) => {
     if (id != null) allowed.add(id);
@@ -99,7 +84,7 @@ function buildView(state, audience, options = {}) {
     round: state.round,
     phase: state.phase,
     rules: { ...state.rules },
-    players: state.players.map((p) => seatFor(state, p, me, connected)),
+    players: state.players.map((p) => seatFor(state, p, me)),
     current: state.current,
     startPlayer: state.startPlayer,
     deckLeft: state.deck.length,
@@ -114,10 +99,6 @@ function buildView(state, audience, options = {}) {
     reveal,
     roundResult,
     gameOver: state.gameOver,
-    // Fehlt ganz, solange niemand eine Geräteliste führt (Ein-Gerät-Modus).
-    waitingFor: connected
-      ? state.players.filter((p) => !connected.has(p.id)).map((p) => p.id)
-      : null,
     publicCards: (state.publicCards ?? []).slice(),
     you,
     log,
@@ -129,14 +110,12 @@ function buildView(state, audience, options = {}) {
  * Ein Platz am Tisch. Namen und Punkte sind öffentlich, die PIN ist es
  * nie – von ihr geht nur weiter, *dass* es eine gibt.
  */
-function seatFor(state, player, me, connected) {
+function seatFor(state, player, me) {
   const mine = player.id === me;
   const open = new Set(state.publicCards ?? []);
   return {
     id: player.id,
     name: player.name,
-    // null = unbekannt, nicht „kein Gerät“.
-    connected: connected ? connected.has(player.id) : null,
     score: player.score,
     usedReset: player.usedReset,
     hasPin: Boolean(player.pin),
