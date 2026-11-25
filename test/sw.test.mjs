@@ -9,10 +9,11 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir, access } from 'node:fs/promises';
 import vm from 'node:vm';
 
-const SOURCE = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
+const ROOT = new URL('../', import.meta.url);
+const SOURCE = await readFile(new URL('sw.js', ROOT), 'utf8');
 const ORIGIN = 'https://cabo.test';
 
 /** Eine Antwort, so weit der Service Worker sie anfasst. */
@@ -41,9 +42,10 @@ function loadServiceWorker({ network, cached = {} }) {
   const key = (r) => new URL(typeof r === 'string' ? r : r.url, `${ORIGIN}/`).href;
   for (const [path, res] of Object.entries(cached)) store.set(key(path), res);
 
+  const precached = [];
   const cache = {
     put: async (request, res) => void store.set(key(request), res),
-    addAll: async () => {},
+    addAll: async (list) => void precached.push(...list),
   };
   const sandbox = {
     self: {
@@ -75,7 +77,15 @@ function loadServiceWorker({ network, cached = {} }) {
     return result;
   }
 
-  return { navigate, store, key };
+  /** Installation durchspielen; liefert die Liste, die vorab in den Cache geht. */
+  async function install() {
+    let done;
+    handlers.install({ waitUntil: (promise) => (done = promise) });
+    await done;
+    return precached;
+  }
+
+  return { navigate, install, store, key };
 }
 
 const GAME = response(200, 'das Spiel');
@@ -142,4 +152,27 @@ test('Eine Weiterleitung wird durchgereicht, nicht ersetzt und nicht gecacht', a
   const shown = await sw.navigate('./');
   assert.equal(shown.type, 'opaqueredirect', 'der Browser folgt ihr selbst');
   assert.equal(sw.store.get(sw.key('./')).body, 'das Spiel');
+});
+
+// ------------------------------------------------------- Offline-Liste
+
+test('Jede Skript- und Stildatei liegt offline bereit', async () => {
+  const assets = await loadServiceWorker({ network: async () => GAME }).install();
+  for (const dir of ['js', 'css']) {
+    for (const name of await readdir(new URL(`${dir}/`, ROOT))) {
+      // Fehlt eine Datei, lädt die Seite offline nur halb – und zwar erst
+      // dann, wenn jemand sie importiert. Das fällt sonst niemandem auf.
+      assert.ok(assets.includes(`${dir}/${name}`), `${dir}/${name} fehlt in ASSETS von sw.js`);
+    }
+  }
+});
+
+test('Jeder Eintrag der Offline-Liste existiert', async () => {
+  const assets = await loadServiceWorker({ network: async () => GAME }).install();
+  // `cache.addAll` scheitert ganz, wenn auch nur eine Datei fehlt – dann
+  // ist offline gar nichts im Cache.
+  for (const path of assets) {
+    const file = path === './' ? 'index.html' : path;
+    await assert.doesNotReject(access(new URL(file, ROOT)), `${path} gibt es nicht`);
+  }
 });
