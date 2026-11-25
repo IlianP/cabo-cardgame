@@ -4,6 +4,9 @@
  *   npx playwright@latest install chromium   # einmalig
  *   node tools/rtc-check.mjs
  *
+ * Playwright muss nicht im Projekt liegen: Eine global oder anderswo
+ * vorinstallierte Fassung wird ebenfalls gefunden (siehe unten).
+ *
  * Warum als eigenes Werkzeug und nicht unter `npm test`: Dafür braucht es
  * einen echten Browser, und das Projekt soll ohne Abhängigkeiten
  * auskommen. `RTCPeerConnection` gibt es in Node nicht – die Teile, die
@@ -17,13 +20,21 @@
  * einen QR-Code?), Sichtfilterung über die echte Leitung, doppelte
  * Nachrichten und das Erkennen eines abgerissenen Geräts.
  */
-import { chromium } from 'playwright';
+import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+
+// Playwright über `require` laden, nicht per `import`: ES-Module suchen nur
+// in `node_modules` entlang des Pfads und ignorieren NODE_PATH und globale
+// Installationen. Weil das Projekt bewusst keine Abhängigkeiten hat, liegt
+// Playwright aber oft genau dort – global installiert oder in einer
+// vorbereiteten Umgebung. `require` findet beides, und eine Installation
+// im Projekt ebenso.
+const { chromium } = createRequire(import.meta.url)('playwright');
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
