@@ -29,11 +29,18 @@
  * auf der Tischkante, an der dieser Spieler sitzt.
  */
 
-/** Ankerarten. `EDGE` entsteht erst beim Auflösen, nicht hier. */
+/**
+ * Ankerarten. `EDGE` entsteht erst beim Auflösen, nicht hier.
+ *
+ * `DRAWN` ist die gezogene Karte selbst, `DRAWN_SLOT` der Platz, an dem
+ * sie liegt. Der Unterschied zählt beim Abspielen: Ist die Karte schon
+ * weggeräumt, steht ihr Platz noch da.
+ */
 export const ANCHOR = {
   DECK: 'deck',
   DISCARD: 'discard',
   DRAWN: 'drawn',
+  DRAWN_SLOT: 'drawnSlot',
   HAND: 'hand',
   EDGE: 'edge',
 };
@@ -112,12 +119,18 @@ function drawScenes(entry) {
  * Immer verdeckt: Abgeworfen werden darf nur eine frisch vom Stapel
  * gezogene Karte – eine aus der Ablage genommene *muss* getauscht werden
  * (Wächter in `discardDrawn`). Der Ausgangsort liegt hier also nie offen.
+ *
+ * Die Karte selbst ist beim Abspielen nie mehr da: Die Engine leert
+ * `drawn` im selben Zug, und die Oberfläche zeichnet neu, bevor die
+ * Animation startet – bei Zugende sogar erst nach der Übergabesperre.
+ * Darum der Platz des Ablagebereichs als Ersatz; er wird erst beim
+ * Abspielen gemessen und stimmt so auch nach einer Drehung des Tablets.
  */
 function discardScenes(entry) {
   return [
     scene({
       key: `${entry.n}-discard`,
-      from: { kind: ANCHOR.DRAWN },
+      from: { kind: ANCHOR.DRAWN, fallback: { kind: ANCHOR.DRAWN_SLOT } },
       to: { kind: ANCHOR.DISCARD },
       card: entry.card,
       faceUp: false,

@@ -6,7 +6,7 @@
  * Hintergrund nach einer neueren Fassung schauen.
  */
 
-const VERSION = 'cabo-v7';
+const VERSION = 'cabo-v8';
 const ASSETS = [
   './',
   'index.html',
@@ -28,6 +28,7 @@ const ASSETS = [
   'js/multi.js',
   'js/scenes.js',
   'js/flight.js',
+  'js/anchors.js',
   'js/seating.js',
   'manifest.webmanifest',
   'icons/icon-192.png',

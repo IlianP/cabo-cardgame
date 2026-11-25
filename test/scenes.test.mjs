@@ -25,6 +25,7 @@ import { CaboGame, PHASE } from '../js/engine.js';
 import { mulberry32 } from '../js/deck.js';
 import { ANCHOR, scenesFor, scenesForAll, newEntries, latestSeq } from '../js/scenes.js';
 import { seatAngles, withOverrides, edgePoint, edgeName, VIEWER_ANGLE } from '../js/seating.js';
+import { resolveAnchor, centeredCard } from '../js/anchors.js';
 
 // ------------------------------------------------------------- Hilfsmittel
 
@@ -91,7 +92,13 @@ function assertNoLeak(entries) {
   }
 }
 
-/** Spielt einen kompletten Zug und sammelt dabei alle entstandenen Flüge. */
+/**
+ * Spielt einen kompletten Zug und sammelt dabei alle entstandenen Flüge.
+ *
+ * `choose(game, step)` darf mehrere Aktionen hintereinander ausführen; mit
+ * `step()` dazwischen wird – wie in der Oberfläche nach jeder Aktion –
+ * einmal "gezeichnet" und geerntet.
+ */
 function playTurn(game, choose) {
   const collected = [];
   let seq = latestSeq(game.state);
@@ -101,7 +108,11 @@ function playTurn(game, choose) {
     const entries = newEntries(game.state, seq);
     seq = latestSeq(game.state);
     assertNoLeak(entries);
-    collected.push(...scenesForAll(entries));
+    const scenes = scenesForAll(entries);
+    // Jede Flugbahn muss sich auf dem frisch gezeichneten Tisch auflösen
+    // lassen – sonst fällt sie beim Abspielen still aus.
+    assertResolvable(scenes, game.state);
+    collected.push(...scenes);
   };
 
   const startedAt = game.state.current;
@@ -111,7 +122,7 @@ function playTurn(game, choose) {
       if (s.handoff.to !== startedAt) break;
       game.confirmHandoff();
     } else if (s.phase === PHASE.REVEAL) game.ackReveal();
-    else if (s.phase === PHASE.TURN) choose(game);
+    else if (s.phase === PHASE.TURN) choose(game, harvest);
     else if (s.phase === PHASE.DRAWN) game.discardDrawn();
     else if (s.phase === PHASE.POWER) game.skipPower();
     else break;
@@ -178,6 +189,63 @@ test('abwerfen geht nur mit einer frisch gezogenen Karte', () => {
   completeInitialPeeks(game);
   game.takeDiscard();
   assert.throws(() => game.discardDrawn(), /getauscht/);
+});
+
+/**
+ * Der Bildschirm, wie flight.js ihn beim Abspielen vorfindet.
+ *
+ * Abgespielt wird erst *nach* dem Zeichnen des neuen Zustands. Was der Zug
+ * weggeräumt hat, ist dann schon fort – allen voran die gezogene Karte im
+ * Ablagebereich, sobald sie abgeworfen oder getauscht wurde. Stapel,
+ * Ablage, der (womöglich leere) Ablagebereich und die Handplätze stehen
+ * dagegen immer da. Die Tabelle bildet genau das nach, ohne DOM.
+ */
+function screenAfter(state) {
+  const card = { width: 70, height: 101 };
+  const rects = new Map([
+    ['deck', { left: 100, top: 300, ...card }],
+    ['discard', { left: 300, top: 300, ...card }],
+    // Leer geschrumpft: null Breite, die Mitte bleibt.
+    ['drawnSlot', centeredCard({ left: 235, top: 350, width: 0, height: 0 }, card)],
+  ]);
+  if (state.drawn != null) rects.set('drawn', { left: 200, top: 300, ...card });
+  state.players.forEach((p, owner) =>
+    p.hand.forEach((_, slot) => rects.set(`hand:${owner}:${slot}`, { left: 80 * slot, top: 600, ...card })),
+  );
+  return (key) => rects.get(key) ?? null;
+}
+
+function assertResolvable(scenes, state) {
+  const measure = screenAfter(state);
+  for (const scene of scenes) {
+    assert.ok(resolveAnchor(scene.from, measure), `${scene.key}: Ausgangsort lässt sich nicht finden`);
+    assert.ok(resolveAnchor(scene.to, measure), `${scene.key}: Ziel lässt sich nicht finden`);
+  }
+}
+
+test('eine abgeworfene Karte findet ihren Ausgangsort auch nach dem Neuzeichnen', () => {
+  // Regression: Der Ablagebereich ist beim Abspielen schon leer, und ohne
+  // Ersatzanker fiel jeder Abwurf-Flug stillschweigend aus.
+  const game = newGame();
+  completeInitialPeeks(game);
+  game.drawFromDeck();
+  const seq = latestSeq(game.state);
+
+  game.discardDrawn();
+  assert.equal(game.state.drawn, null);
+  const scenes = scenesForAll(newEntries(game.state, seq));
+
+  assert.equal(scenes.length, 1);
+  assertResolvable(scenes, game.state);
+  // Der Ersatz ist der Platz des Ablagebereichs, nicht etwa der Stapel –
+  // die Karte soll von dort abheben, wo sie eben noch lag.
+  assert.equal(scenes[0].from.fallback.kind, ANCHOR.DRAWN_SLOT);
+});
+
+test('der leere Ablagebereich liefert ein Kartenformat an seiner Mitte', () => {
+  const rect = centeredCard({ left: 200, top: 100, width: 0, height: 0 }, { width: 70, height: 100 });
+  assert.deepEqual(rect, { left: 165, top: 50, width: 70, height: 100 });
+  assert.equal(centeredCard(null, { width: 70, height: 100 }), null);
 });
 
 // ------------------------------------------------------------------ Tausch
@@ -252,11 +320,14 @@ test('über eine ganze Runde verrät keine Animation eine verdeckte Karte', () =
 
   let seen = 0;
   for (let turn = 0; turn < 24 && !game.state.roundResult; turn += 1) {
-    const scenes = playTurn(game, (g) => {
+    const scenes = playTurn(game, (g, step) => {
       // Abwechselnd ziehen und aus der Ablage nehmen, damit beide
-      // Ausgangsorte vorkommen; danach tauschen statt abwerfen.
+      // Ausgangsorte vorkommen; meist tauschen, jeder vierte Zug wirft ab
+      // (das übernimmt playTurn, wenn hier nichts mehr geschieht).
       if (turn % 2 === 0 || !g.state.discard.length) g.drawFromDeck();
       else g.takeDiscard();
+      step();
+      if (turn % 4 === 0 && g.state.drawnFrom === 'deck') return;
       const me = g.state.current;
       const slot = g.state.players[me].hand.findIndex((id) => id != null);
       if (g.state.phase === PHASE.DRAWN && slot >= 0) g.selectCard(me, slot);

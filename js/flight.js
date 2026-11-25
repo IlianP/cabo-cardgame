@@ -24,6 +24,7 @@
  */
 
 import { ANCHOR } from './scenes.js';
+import { keyOf, resolveAnchor, centeredCard } from './anchors.js';
 import { seatAngles, withOverrides, edgePoint } from './seating.js';
 
 /**
@@ -208,12 +209,6 @@ function clearMasks() {
 
 // ------------------------------------------------------------------ Anker
 
-function keyOf(anchor) {
-  if (!anchor) return '';
-  if (anchor.kind === ANCHOR.HAND) return `hand:${anchor.owner}:${anchor.slot}`;
-  return anchor.kind;
-}
-
 function findByKey(key) {
   const [kind, owner, slot] = key.split(':');
   switch (kind) {
@@ -233,22 +228,37 @@ function findByKey(key) {
 /**
  * Wo liegt ein Anker auf dem Bildschirm?
  *
- * Findet sich kein Element, greift der Ersatzanker aus der Flugbahn – und
- * wenn auch der ins Leere läuft, die Tischkante in der Richtung, in der
- * dieser Spieler sitzt. Der letzte Fall ist heute nur im Mehrgeräte-Modus
- * möglich; er ist die Stelle, an der später der Übergang von einem Gerät
- * auf das andere ansetzt.
+ * Die Reihenfolge der Ersatzanker steht in anchors.js (dort ohne DOM
+ * geprüft); hier wird nur gemessen. Läuft auch der letzte Ersatz ins
+ * Leere, greift für eine Hand die Tischkante in der Richtung, in der
+ * dieser Spieler sitzt – heute nur im Mehrgeräte-Modus möglich, und die
+ * Stelle, an der später der Übergang von einem Gerät auf das andere
+ * ansetzt.
  */
 function resolve(anchor) {
-  if (!anchor) return null;
-  const node = findByKey(keyOf(anchor));
-  if (node) {
-    const r = node.getBoundingClientRect();
-    if (r.width > 0 && r.height > 0) return { left: r.left, top: r.top, width: r.width, height: r.height };
-  }
-  if (anchor.fallback) return resolve(anchor.fallback);
-  if (anchor.kind === ANCHOR.HAND) return edgeRect(anchor.owner);
-  return null;
+  return resolveAnchor(anchor, measure, edgeRect);
+}
+
+function measure(key) {
+  if (key === ANCHOR.DRAWN_SLOT) return drawnSlotRect();
+  const node = findByKey(key);
+  if (!node) return null;
+  const r = node.getBoundingClientRect();
+  return { left: r.left, top: r.top, width: r.width, height: r.height };
+}
+
+/**
+ * Der Platz des Ablagebereichs – auch wenn er leer ist.
+ *
+ * Leer schrumpft er auf null Breite, bleibt aber zwischen Stapel und
+ * Ablage stehen; seine Mitte ist die Stelle, an der die Karte lag.
+ */
+function drawnSlotRect() {
+  const area = document.getElementById('drawn-area');
+  // Ausgeblendet hätte er keine Lage – dann lieber gar kein Flug als
+  // einer aus der Bildschirmecke.
+  if (!area?.isConnected || !area.getClientRects().length) return null;
+  return centeredCard(area.getBoundingClientRect(), referenceCardSize());
 }
 
 /** Ein Kartenformat direkt an der Tischkante, in Richtung eines Spielers. */
