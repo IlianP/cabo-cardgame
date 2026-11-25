@@ -261,8 +261,8 @@ npx playwright@latest install chromium   # einmalig
 node tools/rtc-check.mjs
 ```
 
-Ein schon vorhandenes Playwright (global oder in einer vorbereiteten Umgebung) wird
-ebenfalls gefunden; der erste Schritt entfällt dann.
+Ein schon vorhandenes Playwright wird ebenfalls gefunden – im Projekt, über `NODE_PATH`
+oder global installiert (`npm install -g playwright`); der erste Schritt entfällt dann.
 
 ## Mehrgeräte-Modus – Stand der Dinge
 

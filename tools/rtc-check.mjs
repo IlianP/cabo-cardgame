@@ -4,8 +4,8 @@
  *   npx playwright@latest install chromium   # einmalig
  *   node tools/rtc-check.mjs
  *
- * Playwright muss nicht im Projekt liegen: Eine global oder anderswo
- * vorinstallierte Fassung wird ebenfalls gefunden (siehe unten).
+ * Playwright muss nicht im Projekt liegen: Eine Fassung über NODE_PATH oder
+ * eine globale npm-Installation wird ebenfalls gefunden (siehe unten).
  *
  * Warum als eigenes Werkzeug und nicht unter `npm test`: Dafür braucht es
  * einen echten Browser, und das Projekt soll ohne Abhängigkeiten
@@ -21,6 +21,7 @@
  * Nachrichten und das Erkennen eines abgerissenen Geräts.
  */
 import { createRequire } from 'node:module';
+import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
@@ -28,13 +29,34 @@ import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-// Playwright über `require` laden, nicht per `import`: ES-Module suchen nur
-// in `node_modules` entlang des Pfads und ignorieren NODE_PATH und globale
-// Installationen. Weil das Projekt bewusst keine Abhängigkeiten hat, liegt
-// Playwright aber oft genau dort – global installiert oder in einer
-// vorbereiteten Umgebung. `require` findet beides, und eine Installation
-// im Projekt ebenso.
-const { chromium } = createRequire(import.meta.url)('playwright');
+// Playwright finden, ohne dass es im Projekt liegen muss – das Projekt hat
+// bewusst keine Abhängigkeiten, Playwright liegt daher oft global oder in
+// einer vorbereiteten Umgebung.
+//
+// Erst `require` statt `import`: ES-Module suchen nur in `node_modules`
+// entlang des Pfads und ignorieren NODE_PATH; `require` folgt NODE_PATH und
+// findet eine Installation im Projekt ebenso. Den globalen Ordner von npm
+// (`npm root -g`) durchsucht aber auch `require` nicht von selbst – ohne
+// NODE_PATH bliebe eine globale Installation unentdeckt. Deshalb als
+// zweiter Versuch dort nachsehen.
+function loadPlaywright() {
+  const require = createRequire(import.meta.url);
+  try {
+    return require('playwright');
+  } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND') throw error;
+    try {
+      const globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
+      return require(join(globalRoot, 'playwright'));
+    } catch {
+      throw new Error(
+        'Playwright nicht gefunden – weder im Projekt, noch über NODE_PATH, noch global.\n' +
+          'Einmalig installieren: npm install -g playwright && npx playwright install chromium',
+      );
+    }
+  }
+}
+const { chromium } = loadPlaywright();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
