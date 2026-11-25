@@ -232,6 +232,7 @@ test/debug.test.mjs     Tests von Ereignis-Verlauf und Debug-Bericht
 test/view.test.mjs      Tests der Sichten-Filterung
 test/host.test.mjs      Tests des Mehrgeräte-Modus
 test/webrtc.test.mjs    Tests des WebRTC-Transports (ohne Browser)
+test/sw.test.mjs        Tests des Service Workers (ohne Browser)
 test/scenes.test.mjs    Tests der Choreografie und der Sitzordnung
 multi.html              Einstieg in den Mehrgeräte-Modus
 ```
@@ -255,13 +256,15 @@ früher verraten als das Spiel selbst.
 npm test
 ```
 
-118 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
+134 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
 Nachmischen bei leerem Stapel, die Abrechnung inklusive Strafpunkten und Gleichstand,
 Shoot the Moon, Punktlandung, Startspielerwechsel, Spielende und das Speichern ab –
 dazu den Ereignis-Verlauf, den Debug-Bericht, die Sichten-Filterung und den
 Mehrgeräte-Modus (Beitreten, Wiederverbinden, doppelte und veraltete Nachrichten), den
-WebRTC-Transport sowie die Choreografie der Animationen samt der Prüfung, dass keine
-Animation eine verdeckte Karte verrät.
+WebRTC-Transport (auch das Aufräumen verlorener Verbindungen), den Service Worker
+(Seitenaufrufe bei Serverfehlern und ohne Netz, vollständige Offline-Liste) sowie die
+Choreografie der Animationen samt der Prüfung, dass keine Animation eine verdeckte Karte
+verrät.
 
 `RTCPeerConnection` gibt es in Node nicht – der echte Handschlag zwischen zwei Browsern
 läuft deshalb als eigenes Werkzeug, das einen Browser braucht und darum nicht in `npm test`
@@ -271,6 +274,9 @@ hängt:
 npx playwright@latest install chromium   # einmalig
 node tools/rtc-check.mjs
 ```
+
+Ein schon vorhandenes Playwright wird ebenfalls gefunden – im Projekt, über `NODE_PATH`
+oder global installiert (`npm install -g playwright`); der erste Schritt entfällt dann.
 
 ## Mehrgeräte-Modus – Stand der Dinge
 

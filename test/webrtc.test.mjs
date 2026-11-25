@@ -331,3 +331,163 @@ test('Ein Verlust wird nur einmal gemeldet', async () => {
   pc.setState('failed');
   assert.deepEqual(left, [id]);
 });
+
+// ------------------------------------- Aufgeben heißt schließen (PR #9)
+
+/**
+ * Wie `watchablePeerConnections`, aber mit allem, was das Aufräumen
+ * braucht: Zuhörer lassen sich wieder abmelden, und ein geschlossener
+ * Kanal meldet sich – wie im Browser – auch dann noch über `onclose`,
+ * wenn das Gerät sich längst erholt hat.
+ */
+function closablePeerConnections() {
+  const { FakePC } = fakePeerConnections();
+  class ClosablePC extends FakePC {
+    constructor(config) {
+      super(config);
+      this.connectionState = 'new';
+      this._watchers = new Set();
+    }
+    addEventListener(type, fn) {
+      if (type === 'connectionstatechange') this._watchers.add(fn);
+    }
+    removeEventListener(type, fn) {
+      if (type === 'connectionstatechange') this._watchers.delete(fn);
+    }
+    setState(state) {
+      this.connectionState = state;
+      for (const fn of [...this._watchers]) fn();
+    }
+    close() {
+      // Wie im Browser: close() selbst löst kein connectionstatechange aus.
+      this.closed = true;
+      this.connectionState = 'closed';
+    }
+  }
+  return ClosablePC;
+}
+
+async function connectedHost(PC) {
+  const host = new WebRtcHostTransport({ RTCPeerConnection: PC });
+  const left = [];
+  const got = [];
+  host.onLeave((id) => left.push(id));
+  host.onMessage((envelope) => got.push(envelope));
+  const { id } = await host.invite();
+  const { pc, channel } = host.pending.get(id);
+  await host.accept(id, encodeSignal({ type: 'answer', sdp: SDP }));
+  channel.open();
+  return { host, id, pc, channel, left, got };
+}
+
+test('Nach der Karenz wird die Leitung geschlossen, nicht nur vergessen', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { host, id, pc, channel, left, got } = await connectedHost(closablePeerConnections());
+
+  pc.setState('disconnected');
+  t.mock.timers.tick(6000);
+  assert.deepEqual(left, [id], 'nach der Frist gilt das Gerät als weg');
+  assert.equal(pc.closed, true, 'sonst bleibt eine offene Einbahnstraße zurück');
+  assert.equal(host.peers.size, 0);
+
+  // Das Netz erholt sich – vom vergessenen Gerät darf nichts mehr ankommen,
+  // und es darf auch keinen zweiten Verlust geben.
+  pc.setState('connected');
+  channel.onmessage?.({ data: JSON.stringify({ type: 'join', audience: 0 }) });
+  assert.deepEqual(got, [], 'Nachrichten eines aufgegebenen Geräts zählen nicht');
+  channel.close();
+  pc.setState('failed');
+  t.mock.timers.tick(6000);
+  assert.deepEqual(left, [id], 'trotzdem nur ein Verlust');
+});
+
+test('Ein Verlust über den Kanal beendet auch die laufende Karenzfrist', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { pc, channel, id, left } = await connectedHost(closablePeerConnections());
+
+  pc.setState('disconnected'); // Frist läuft …
+  channel.close(); // … aber der Kanal meldet den Verlust schon vorher
+  assert.deepEqual(left, [id]);
+  assert.equal(pc.closed, true);
+  assert.equal(pc._watchers.size, 0, 'niemand horcht mehr auf die tote Leitung');
+  t.mock.timers.tick(6000);
+  assert.deepEqual(left, [id]);
+});
+
+test('Auch eine verlorene Einladung schließt ihre Leitung', async () => {
+  const PC = closablePeerConnections();
+  const host = new WebRtcHostTransport({ RTCPeerConnection: PC });
+  const left = [];
+  host.onLeave((id) => left.push(id));
+
+  const { id } = await host.invite();
+  const { pc, channel } = host.pending.get(id);
+  channel.close();
+
+  assert.deepEqual(left, [id]);
+  assert.equal(host.pending.size, 0);
+  assert.equal(pc.closed, true, 'close() fände sie danach nicht mehr');
+});
+
+test('close() räumt Geräte und Einladungen samt Fristen ab', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { host, pc, left } = await connectedHost(closablePeerConnections());
+  const { id: waiting } = await host.invite();
+  const invited = host.pending.get(waiting).pc;
+
+  pc.setState('disconnected');
+  host.close();
+  t.mock.timers.tick(6000);
+
+  assert.equal(pc.closed, true);
+  assert.equal(invited.closed, true);
+  assert.equal(pc._watchers.size + invited._watchers.size, 0);
+  assert.deepEqual(left, [], 'wer selbst schließt, bekommt keinen Verlust gemeldet');
+});
+
+/** Ein Gerät mit offenem Kanal zum Tisch. */
+async function connectedDevice(PC) {
+  const device = new WebRtcDeviceTransport({ RTCPeerConnection: PC });
+  const left = [];
+  device.onLeave((who) => left.push(who));
+  await device.answer(encodeSignal({ type: 'offer', sdp: SDP }));
+  const pc = device.pc;
+  const channel = {
+    readyState: 'open',
+    sent: [],
+    send(data) {
+      this.sent.push(data);
+    },
+    addEventListener() {},
+  };
+  pc.ondatachannel({ channel });
+  return { device, pc, channel, left };
+}
+
+test('Auch das Gerät schließt die Leitung nach der Karenz und meldet nur einmal', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { device, pc, channel, left } = await connectedDevice(closablePeerConnections());
+
+  pc.setState('disconnected');
+  t.mock.timers.tick(6000);
+  assert.deepEqual(left, ['host']);
+  assert.equal(pc.closed, true, 'sonst kommen weiter Sichten an, obwohl der Tisch als weg gilt');
+  assert.equal(device.send('host', { type: 'join' }), false);
+
+  // Der Kanal meldet sich hinterher noch – das ist kein zweiter Verlust.
+  channel.onclose?.();
+  pc.setState('failed');
+  assert.deepEqual(left, ['host']);
+});
+
+test('Wer das Gerät selbst schließt, bekommt keinen Verlust gemeldet', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { device, pc, channel, left } = await connectedDevice(closablePeerConnections());
+
+  pc.setState('disconnected');
+  device.close();
+  channel.onclose?.();
+  t.mock.timers.tick(6000);
+  assert.equal(pc.closed, true);
+  assert.deepEqual(left, []);
+});
