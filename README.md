@@ -244,13 +244,13 @@ speichern, laden und in Tests bequem vorbereiten.
 npm test
 ```
 
-116 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
+118 Tests decken Deckaufbau, Kartenkräfte, Mehrfach-Ablage mit richtiger und falscher Ansage,
 Nachmischen bei leerem Stapel, die Abrechnung inklusive Strafpunkten und Gleichstand,
 Shoot the Moon, Punktlandung, Startspielerwechsel, Spielende und das Speichern ab –
 dazu den Ereignis-Verlauf, den Debug-Bericht, die Sichten-Filterung und den
 Mehrgeräte-Modus (Beitreten, Wiederverbinden, doppelte und veraltete Nachrichten), den
 WebRTC-Transport (auch das Aufräumen verlorener Verbindungen) und den Service Worker
-(Seitenaufrufe bei Serverfehlern und ohne Netz).
+(Seitenaufrufe bei Serverfehlern und ohne Netz, vollständige Offline-Liste).
 
 `RTCPeerConnection` gibt es in Node nicht – der echte Handschlag zwischen zwei Browsern
 läuft deshalb als eigenes Werkzeug, das einen Browser braucht und darum nicht in `npm test`
@@ -260,6 +260,9 @@ hängt:
 npx playwright@latest install chromium   # einmalig
 node tools/rtc-check.mjs
 ```
+
+Ein schon vorhandenes Playwright (global oder in einer vorbereiteten Umgebung) wird
+ebenfalls gefunden; der erste Schritt entfällt dann.
 
 ## Mehrgeräte-Modus – Stand der Dinge
 
