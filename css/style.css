@@ -422,6 +422,51 @@ input.pin-input { flex: 0 0 96px; text-align: center; letter-spacing: .3em; }
 }
 .pile-card--back { border: 1px solid rgba(230, 184, 86, .55); }
 .pile-label { font-size: 12px; color: var(--muted); }
+
+/* ----------------------------- Flugebene ----------------------------- */
+
+/* Über dem Tisch, unter den Overlays (die liegen auf 50). Ohne eigene
+   Eingaben: die echte Karte darunter bleibt anfassbar, auch während
+   etwas fliegt. */
+.flights {
+  position: fixed; inset: 0; z-index: 30;
+  pointer-events: none;
+  overflow: hidden;
+  /* Fluchtpunkt für das spätere Umdrehen der Karten. Steht schon jetzt
+     hier, damit Höhe und Perspektive aus derselben Quelle kommen. */
+  perspective: 1400px;
+  perspective-origin: 50% 42%;
+}
+
+/* Start ist immer oben links; bewegt wird ausschließlich per transform,
+   damit die Animation auf dem Compositor bleibt und nicht bei jedem Bild
+   ein neues Layout auslöst. */
+.flight,
+.flight-shadow {
+  position: absolute; top: 0; left: 0;
+  will-change: transform;
+}
+/* Alle Schatten unter alle Karten – sonst legt sich bei zwei gleichzeitigen
+   Flügen (Tausch) der Schatten des einen über die Karte des anderen. */
+.flight-shadow { z-index: 0; }
+.flight {
+  z-index: 1;
+  transform-style: preserve-3d;
+}
+.flight .card {
+  width: 100%; height: 100%;
+  /* Der Schatten fliegt als eigenes Element mit – der angeklebte aus
+     `.card` würde sich beim Abheben nicht von der Karte lösen können. */
+  box-shadow: none;
+}
+/* Der Schatten bleibt auf dem Tisch liegen, während die Karte darüber
+   steigt, und wandert dabei in Lichtrichtung von ihr weg. Kartenförmig
+   und nicht als runder Fleck – ein flaches Rechteck wirft keinen Kreis. */
+.flight-shadow {
+  border-radius: 10px;
+  background: #000;
+  filter: blur(7px);
+}
 .pile-label b { color: var(--cream); }
 .pile.is-active .pile-card { box-shadow: 0 0 0 3px rgba(230, 184, 86, .5), 0 3px 10px rgba(0, 0, 0, .35); }
 .pile:disabled { opacity: .45; cursor: default; }

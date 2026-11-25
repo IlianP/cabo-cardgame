@@ -12,6 +12,8 @@ import { POWER, POWER_NAME, MAX_VALUE } from './deck.js';
 import { artFor, CARD_BACK } from './art.js';
 import { attachReveal, makeTimerRing } from './privacy.js';
 import { copyDebugState } from './debug.js';
+import { newEntries, latestSeq, scenesForAll } from './scenes.js';
+import * as flight from './flight.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -58,6 +60,7 @@ let pinBuffer = '';
 let lastGateKey = '';
 let revealSeen = false;
 let toastTimer = 0;
+let lastSeq = 0;
 
 const settings = () => ({
   holdToReveal: game?.rules.holdToReveal ?? true,
@@ -658,6 +661,50 @@ async function onDebugClick() {
   el.modalBody.querySelector('.debug-text')?.select();
 }
 
+// ------------------------------------------------------------ Animationen
+
+/**
+ * Baut die fliegende Kopie einer Karte.
+ *
+ * Nur die Oberfläche weiß, wie eine Karte aussieht – die Flugebene bekommt
+ * deshalb hier ein fertiges Element und muss nichts über Werte, Farben
+ * oder Bilder wissen.
+ */
+function ghostFor(scene) {
+  const card = scene.card == null ? null : game?.card(scene.card);
+  const holder = document.createElement('div');
+  holder.innerHTML = cardMarkup(card, {
+    faceUp: scene.faceUp && Boolean(card),
+    classes: ['card--ghost'],
+  });
+  return holder.firstElementChild;
+}
+
+/** Sitzordnung für Flüge zu einer Hand, die nicht auf diesem Gerät liegt. */
+function seatFor() {
+  return game ? { state: game.state, viewer: game.viewer } : null;
+}
+
+/**
+ * Übersetzt die neuen Verlaufseinträge in Bewegungen.
+ *
+ * Läuft nach dem Zeichnen, weil die Zielkarten erst dann an ihrem Platz
+ * stehen und sich messen lassen. Während die Übergabesperre oben liegt,
+ * wartet die Warteschlange: Ein Zug soll dem *nächsten* Spieler gezeigt
+ * werden – er ist derjenige, der wissen muss, was gerade passiert ist.
+ */
+function runAnimations() {
+  const s = game.state;
+  flight.applyMasks();
+
+  const entries = newEntries(s, lastSeq);
+  lastSeq = latestSeq(s);
+  if (entries.length) flight.enqueue(scenesForAll(entries));
+
+  flight.setPaused(s.phase === PHASE.HANDOFF);
+  flight.pump();
+}
+
 // ----------------------------------------------------------------- Gesamt
 
 export function render() {
@@ -680,6 +727,7 @@ export function render() {
   }
 
   attachMemoryPeeks();
+  runAnimations();
   hooks.onChange?.(s);
 }
 
@@ -732,6 +780,11 @@ export function mount(instance, callbacks = {}) {
   game = instance;
   hooks = callbacks;
   wire();
+  // Beim Einsteigen in eine laufende Partie steht der bisherige Verlauf
+  // schon da – der soll nicht als Animation nachgeholt werden.
+  lastSeq = latestSeq(instance.state);
+  flight.configure({ ghostFor, seatFor });
+  flight.setPaused(false);
   el.screenGame.classList.remove('hidden');
   game.on(render);
   render();
@@ -740,6 +793,7 @@ export function mount(instance, callbacks = {}) {
 export function unmount() {
   for (const d of detachers) d();
   detachers = [];
+  flight.reset();
   el.debugBtn.classList.add('hidden');
   el.screenGame.classList.add('hidden');
   el.gate.classList.add('hidden');
